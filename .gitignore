@@ -1,0 +1,71 @@
+# ---- R & RStudio ----
+# History files
+.Rhistory
+.Rapp.history
+
+# Session datas
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+
+# RStudio project files
+.Rproj.user/
+
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# Produced vignettes
+vignettes/*.html
+vignettes/*.pdf
+
+# OAuth2 token (httr)
+.httr-oauth
+
+# knitr / R Markdown caches
+*_cache/
+/cache/
+
+# Temporary files created by R Markdown
+*.utf8.md
+*.knit.md
+
+# R environment variables
+.Renviron
+
+# pkgdown site
+docs/
+
+# RStudio Connect
+rsconnect/
+
+# Bookdown / HTML site artifacts
+/*_files/
+
+# ---- Project folders ----
+# Raw or sensitive data
+raw_data/
+
+# Local temp / scratch files
+tmp/
+temp/
+scratch/
+plots/
+reports/
+
+# ---- macOS cruft ----
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ---- General backup / editor files ----
+*~
+*.swp
+*.swo

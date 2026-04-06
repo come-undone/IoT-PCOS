@@ -50,15 +50,10 @@ rsconnect/
 /*_files/
 
 # ---- Project folders ----
-# Raw or sensitive data
 raw_data/
-
-# Local temp / scratch files
-tmp/
-temp/
-scratch/
-plots/
-reports/
+archive/
+figures/
+results/
 
 # ---- macOS cruft ----
 .DS_Store

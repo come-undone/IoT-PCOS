@@ -97,12 +97,12 @@ df <- df %>%
     #   "Spanish" (ID=32) -> White (Spanish is a White European ethnicity)
     #   "Mainly european, with some west asian and canadian indigenous" (ID=12) -> Mixed
     ethnicity_cat = case_when(
-      str_detect(ethnicity, "White|Spanish")              ~ "White",
-      str_detect(ethnicity, "Asian")                      ~ "Asian/Asian British",
-      str_detect(ethnicity, "Black")                      ~ "Black/Black British",
-      str_detect(ethnicity, "Mixed|european.*asian")      ~ "Mixed",
-      str_detect(ethnicity, "Gypsy|Gipsy|Traveller")     ~ "Gypsy or Traveller",
-      str_detect(ethnicity, "prefer not|Prefer not")      ~ NA_character_,
+      str_detect(ethnicity, "White|Spanish")            ~ "White",
+      str_detect(ethnicity, "Asian")                    ~ "Asian/Asian British",
+      str_detect(ethnicity, "Black")                    ~ "Black/Black British",
+      str_detect(ethnicity, "Mixed|european.*asian")    ~ "Mixed",
+      str_detect(ethnicity, "Gypsy|Gipsy|Traveller")    ~ "Gypsy or Traveller",
+      str_detect(ethnicity, "prefer not|Prefer not")    ~ NA_character_,
       TRUE ~ "Other"
     ),
 
@@ -230,9 +230,9 @@ df <- df %>%
 # Scotland and Wales areas per Royal Mail/ONS standard definitions.
 # CH covers Chester (England) and Flintshire/NE Wales; all CH postcodes
 # in this sample (CH5, CH7) are Flintshire — classified as Wales.
-scotland_prefixes <- c("AB","DD","DG","EH","FK","G","HS","IV","KA","KW",
-                       "KY","ML","PA","PH","TD","ZE")
-wales_prefixes    <- c("CF","CH","LD","LL","NP","SA","SY")
+scotland_prefixes <- c("AB", "DD", "DG", "EH", "FK", "G", "HS", "IV",
+                       "KA", "KW", "KY", "ML", "PA", "PH", "TD", "ZE")
+wales_prefixes    <- c("CF", "CH", "LD", "LL", "NP", "SA", "SY")
 
 # Rural areas in this sample: DG (Dumfries & Galloway) and DT (Dorset)
 rural_prefixes <- c("DG", "DT")
@@ -268,6 +268,18 @@ print(table(df$urban_rural, useNA = "ifany"))
 # ----------------------------------------------------------------------------
 # 6. Comorbidity count
 # ----------------------------------------------------------------------------
+# Two comorbidity variables with different purposes:
+#
+# comorbidity_count: counts only the 18 pre-specified conditions using
+#   exact fixed() matching. Used as a covariate in regression/SEM models.
+#
+# comorbidity_count_all: counts all self-reported conditions including
+#   free-text entries (Hypothyroidism, Endometriosis, ADHD, etc.).
+#   Counts semicolon-separated items. Used for Table 2 descriptives only.
+#
+# Individual flags use case-insensitive matching. has_depression = 38,
+# capturing ID=18 who entered "Prenatal depression" (lowercase d), which
+# exact fixed('Depression') would miss.
 
 comorbidity_terms <- c(
   "Type 2 diabetes", "Pre-diabetes", "Insulin resistance",
@@ -280,20 +292,63 @@ comorbidity_terms <- c(
 df <- df %>%
   mutate(
     comorbidity_count = case_when(
-      str_detect(comorbidities_raw, "prefer not|Prefer not") ~ NA_real_,
+      str_detect(coalesce(comorbidities_raw, ""),
+                 regex("prefer not", ignore_case = TRUE)) ~ NA_real_,
       is.na(comorbidities_raw) ~ 0,
       TRUE ~ as.numeric(
-        rowSums(sapply(comorbidity_terms, function(x)
-          str_detect(coalesce(comorbidities_raw, ""), fixed(x))))
+        rowSums(sapply(comorbidity_terms, function(x) {
+          str_detect(coalesce(comorbidities_raw, ""), fixed(x))
+        }))
       )
     ),
-    has_depression  = as.numeric(str_detect(coalesce(comorbidities_raw, ""),
-                                            "Depression")),
-    has_anxiety     = as.numeric(str_detect(coalesce(comorbidities_raw, ""),
-                                            "Anxiety disorder")),
-    has_insulin_res = as.numeric(str_detect(coalesce(comorbidities_raw, ""),
-                                            "Insulin resistance"))
+    comorbidity_count_all = case_when(
+      str_detect(coalesce(comorbidities_raw, ""),
+                 regex("prefer not", ignore_case = TRUE)) ~ NA_real_,
+      is.na(comorbidities_raw) | str_trim(comorbidities_raw) == "" ~ 0,
+      TRUE ~ as.numeric(
+        sapply(comorbidities_raw, function(x) {
+          parts <- str_trim(unlist(str_split(x, ";")))
+          parts <- parts[parts != "" &
+                         !str_detect(parts, regex("^none$",
+                                                  ignore_case = TRUE))]
+          length(parts)
+        })
+      )
+    ),
+    has_depression  = as.numeric(
+      str_detect(coalesce(comorbidities_raw, ""),
+                 regex("depression", ignore_case = TRUE))
+    ),
+    has_anxiety     = as.numeric(
+      str_detect(coalesce(comorbidities_raw, ""),
+                 regex("anxiety", ignore_case = TRUE))
+    ),
+    has_insulin_res = as.numeric(
+      str_detect(coalesce(comorbidities_raw, ""),
+                 regex("insulin resistance", ignore_case = TRUE))
+    )
   )
+
+# Verification
+cat("\nComorbidity count (18-item list):\n")
+cat("  Mean:", round(mean(df$comorbidity_count, na.rm = TRUE), 1),
+    "| SD:", round(sd(df$comorbidity_count, na.rm = TRUE), 1),
+    "| Missing:", sum(is.na(df$comorbidity_count)), "\n")
+
+cat("\nComorbidity count all (for Table 2):\n")
+cat("  None:          n =", sum(df$comorbidity_count_all == 0, na.rm = TRUE), "\n")
+cat("  1 condition:   n =", sum(df$comorbidity_count_all == 1, na.rm = TRUE), "\n")
+cat("  2 conditions:  n =", sum(df$comorbidity_count_all == 2, na.rm = TRUE), "\n")
+cat("  3+ conditions: n =", sum(df$comorbidity_count_all >= 3, na.rm = TRUE), "\n")
+cat("  Prefer not/NA: n =", sum(is.na(df$comorbidity_count_all)), "\n")
+n_at_least_one <- sum(df$comorbidity_count_all >= 1, na.rm = TRUE)
+cat(sprintf("  At least one: n = %d (%.1f%%)\n",
+            n_at_least_one, 100 * n_at_least_one / nrow(df)))
+
+cat("\nCondition flags (expected: depression=38, anxiety=38, insulin=21):\n")
+cat("  has_depression: ", sum(df$has_depression  == 1, na.rm = TRUE), "\n")
+cat("  has_anxiety:    ", sum(df$has_anxiety     == 1, na.rm = TRUE), "\n")
+cat("  has_insulin_res:", sum(df$has_insulin_res == 1, na.rm = TRUE), "\n")
 
 
 # ----------------------------------------------------------------------------
@@ -352,12 +407,12 @@ ede_recode_degree <- function(x) {
 isi_recode <- function(x) {
   case_when(
     x %in% c("None", "Not at all noticeable", "Not at all worried",
-              "Not at all interfering", "Very satisfied",  "0") ~ 0,
+             "Not at all interfering", "Very satisfied",  "0") ~ 0,
     x %in% c("Mild", "A little", "Satisfied",                  "1") ~ 1,
     x %in% c("Moderate", "Somewhat", "Moderately satisfied",   "2") ~ 2,
     x %in% c("Severe", "Much", "Dissatisfied",                 "3") ~ 3,
     x %in% c("Very severe", "Very much noticeable", "Very much worried",
-              "Very much interfering", "Very dissatisfied",     "4") ~ 4,
+             "Very much interfering", "Very dissatisfied",     "4") ~ 4,
     TRUE ~ NA_real_
   )
 }
@@ -429,9 +484,9 @@ df <- df %>%
 
     # IoT groups: sample-specific tertile cut-points
     iot_category = case_when(
-      iot_total <= quantile(iot_total, 1/3, na.rm = TRUE) ~ "Low",
-      iot_total <= quantile(iot_total, 2/3, na.rm = TRUE) ~ "Medium",
-      iot_total >  quantile(iot_total, 2/3, na.rm = TRUE) ~ "High",
+      iot_total <= quantile(iot_total, 1 / 3, na.rm = TRUE) ~ "Low",
+      iot_total <= quantile(iot_total, 2 / 3, na.rm = TRUE) ~ "Medium",
+      iot_total >  quantile(iot_total, 2 / 3, na.rm = TRUE) ~ "High",
       TRUE ~ NA_character_
     ),
     iot_category = factor(iot_category,
@@ -507,7 +562,8 @@ df_clean <- df %>%
     occ_unemployed, occ_houseperson, occ_sahm, occ_disabled, occ_prefernot,
     ethnicity_cat, relationship_grouped, has_children,
     postcode_area, nation, urban_rural,
-    comorbidity_count, has_depression, has_anxiety, has_insulin_res,
+    comorbidity_count, comorbidity_count_all,
+    has_depression, has_anxiety, has_insulin_res,
     tobacco_Q1, tobacco_Q2, alcohol_Q1, alcohol_Q2, cm_total, all_of(cm_cols),
     all_of(iot_cols), iot_total, iot_engagement, iot_selfmon, iot_category,
     MET_total, MET_total_log, MET_vigorous, MET_moderate, MET_walk,

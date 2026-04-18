@@ -142,14 +142,19 @@ for (v in outcomes) {
   row <- df_sub %>%
     group_by(iot_category) %>%
     summarise(
-      val = sprintf("%.2f (%.2f)",
-                    mean(.data[[v]], na.rm = TRUE),
-                    sd(.data[[v]], na.rm = TRUE)),
+      n      = n(),
+      Median = round(median(.data[[v]], na.rm = TRUE), 2),
+      Q1     = round(quantile(.data[[v]], 0.25, na.rm = TRUE), 2),
+      Q3     = round(quantile(.data[[v]], 0.75, na.rm = TRUE), 2),
+      val    = sprintf("%.2f [%.2f\u2013%.2f]", Median, Q1, Q3),
       .groups = "drop"
     ) %>%
-    pivot_wider(names_from = iot_category, values_from = val) %>%
+    pivot_wider(names_from = iot_category, values_from = c(val, n)) %>%
     mutate(Variable = v) %>%
-    select(Variable, Low, Medium, High)
+    select(Variable,
+           Low = val_Low, n_Low,
+           Medium = val_Medium, n_Medium,
+           High = val_High, n_High)
 
   desc_rows[[v]] <- row
 }
@@ -191,8 +196,9 @@ for (v in outcomes) {
     group_by(eng_group) %>%
     summarise(
       n      = n(),
+      Q1     = round(quantile(.data[[v]], 0.25, na.rm = TRUE), 2),
       Median = round(median(.data[[v]], na.rm = TRUE), 2),
-      IQR    = round(IQR(.data[[v]], na.rm = TRUE), 2),
+      Q3     = round(quantile(.data[[v]], 0.75, na.rm = TRUE), 2),
       .groups = "drop"
     ) %>%
     print()
@@ -259,8 +265,9 @@ for (v in outcomes) {
     group_by(sm_group) %>%
     summarise(
       n      = n(),
+      Q1     = round(quantile(.data[[v]], 0.25, na.rm = TRUE), 2),
       Median = round(median(.data[[v]], na.rm = TRUE), 2),
-      IQR    = round(IQR(.data[[v]], na.rm = TRUE), 2),
+      Q3     = round(quantile(.data[[v]], 0.75, na.rm = TRUE), 2),
       .groups = "drop"
     ) %>%
     print()

@@ -12,6 +12,7 @@
 
 # RStudio project files
 .Rproj.user/
+.Rproj
 
 # Example code in package build process
 *-Ex.R
@@ -51,6 +52,7 @@ rsconnect/
 
 # ---- Project folders ----
 raw_data/
+data-processed/
 archive/
 figures/
 results/

@@ -141,26 +141,32 @@ cat("  1 condition:   n =", sum(df$comorbidity_count_all == 1, na.rm = TRUE), "\
 cat("  2 conditions:  n =", sum(df$comorbidity_count_all == 2, na.rm = TRUE), "\n")
 cat("  3+ conditions: n =", sum(df$comorbidity_count_all >= 3, na.rm = TRUE), "\n")
 cat("  Prefer not/NA: n =", sum(is.na(df$comorbidity_count_all)), "\n")
+# Denominator = the 89 respondents who disclosed their conditions.
+# The 2 who declined are unknown, not negative, so they are excluded.
+n_disclosed <- sum(!is.na(df$comorbidity_count_all))
+cat("  Disclosed conditions: n =", n_disclosed, "\n")
+
 n_at_least_one <- sum(df$comorbidity_count_all >= 1, na.rm = TRUE)
 cat(sprintf("  At least one condition: n = %d (%.1f%%)\n",
-            n_at_least_one, 100 * n_at_least_one / nrow(df)))
+            n_at_least_one, 100 * n_at_least_one / n_disclosed))
 n_multiple <- sum(df$comorbidity_count_all >= 2, na.rm = TRUE)
 cat(sprintf("  Multiple conditions (2+): n = %d (%.1f%%)\n",
-            n_multiple, 100 * n_multiple / nrow(df)))
+            n_multiple, 100 * n_multiple / n_disclosed))
 
 cat("\n--- Specific condition prevalence (for Table 2) ---\n")
 cat("  Note: has_depression and has_anxiety use case-insensitive matching\n")
-cat("  and include free-text variants (e.g. Prenatal depression).\n\n")
+cat("  and include free-text variants (e.g. Prenatal depression).\n")
+cat("  Denominator = 89 respondents who disclosed their conditions.\n\n")
 
 cat(sprintf("  %-35s n = %d (%.1f%%)\n", "Anxiety disorder",
             sum(df$has_anxiety     == 1, na.rm = TRUE),
-            100 * mean(df$has_anxiety     == 1, na.rm = TRUE)))
+            100 * sum(df$has_anxiety     == 1, na.rm = TRUE) / n_disclosed))
 cat(sprintf("  %-35s n = %d (%.1f%%)\n", "Depression (all variants)",
             sum(df$has_depression  == 1, na.rm = TRUE),
-            100 * mean(df$has_depression  == 1, na.rm = TRUE)))
+            100 * sum(df$has_depression  == 1, na.rm = TRUE) / n_disclosed))
 cat(sprintf("  %-35s n = %d (%.1f%%)\n", "Insulin resistance",
             sum(df$has_insulin_res == 1, na.rm = TRUE),
-            100 * mean(df$has_insulin_res == 1, na.rm = TRUE)))
+            100 * sum(df$has_insulin_res == 1, na.rm = TRUE) / n_disclosed))
 
 cat("\n--- Alcohol use frequency ---\n")
 table(df$alcohol_Q1, useNA = "ifany")
@@ -266,20 +272,42 @@ for (v in c("pcosqol_impact", "pcosqol_infertility",
 
 
 # ----------------------------------------------------------------------------
-# 6. Normality tests (Shapiro-Wilk)
+# 6. Distributional checks
 # ----------------------------------------------------------------------------
-# Informs choice of parametric vs non-parametric tests in subsequent scripts.
+# Descriptive only. The rank-based tests in Script 3 assume no distributional
+# form, and Scripts 4-5 use the MLR estimator, whose standard errors and test
+# statistic are corrected for non-normality. These summaries describe the data;
+# they do not select the tests.
 
-cat("\n--- Shapiro-Wilk normality tests ---\n")
-norm_vars <- c("iot_total", "MET_total", "MET_total_log",
+dist_vars <- c("iot_total", "MET_total", "MET_total_log",
                "isi_total", "ede_q7_global", "swemwbs_total", "pcosqol_total")
 
-for (v in norm_vars) {
-  x  <- df[[v]][!is.na(df[[v]])]
-  sw <- shapiro.test(x)
-  cat(sprintf("  %-20s  W = %.3f  p = %.4f\n", v, sw$statistic, sw$p.value))
-}
+# Guard: log(MET + 1) must change the shape. If this stops the script,
+# cleaned_data.rds is stale and Script 1 needs re-running.
+stopifnot(!isTRUE(all.equal(df$MET_total, df$MET_total_log)))
 
+dist_checks <- psych::describe(as.data.frame(df[, dist_vars]))[
+  , c("n", "mean", "sd", "median", "min", "max", "skew", "kurtosis")]
+
+dist_checks <- cbind(dist_checks, t(sapply(dist_vars, function(v) {
+  s <- shapiro.test(df[[v]][!is.na(df[[v]])])
+  c(shapiro_W = unname(s$statistic), shapiro_p = unname(s$p.value))
+})))
+
+cat("\n--- Distribution of continuous variables ---\n")
+print(round(dist_checks, 3))
+write.csv(round(dist_checks, 3), "results/Script2_distribution_checks.csv")
+
+# Q-Q plots: visual assessment, preferred over a single normality test
+png("results/Script2_qqplots.png", width = 1200, height = 700, res = 120)
+par(mfrow = c(2, 4), mar = c(4, 4, 3, 1))
+for (v in dist_vars) {
+  x <- df[[v]][!is.na(df[[v]])]
+  qqnorm(x, main = v, pch = 16, cex = 0.5,
+         xlab = "Theoretical quantiles", ylab = "Sample quantiles")
+  qqline(x, col = "grey40", lwd = 1.5)
+}
+dev.off()
 
 # ----------------------------------------------------------------------------
 # 7. Spearman correlations: IoT vs outcomes
@@ -309,6 +337,44 @@ for (v in outcomes) {
               v, ct$estimate, ct$p.value))
 }
 
+# ----------------------------------------------------------------------------
+# 7b. FDR-corrected correlations: IoT Total vs outcomes
+# ----------------------------------------------------------------------------
+# Benjamini-Hochberg FDR correction across the 5 outcome tests for the
+# IoT Total predictor. This mirrors exactly the correction already applied
+# to the IoT subscales in Script 3 (Section 5), so that all three predictor
+# families are treated identically. Both uncorrected and corrected p-values
+# are retained so Table 6 can report each.
+
+cat("\n--- IoT Total vs outcomes: BH FDR corrected (5 tests) ---\n\n")
+
+cor_total <- data.frame()
+
+for (v in outcomes) {
+  idx <- !is.na(df$iot_total) & !is.na(df[[v]])
+  ct  <- cor.test(df$iot_total[idx], df[[v]][idx],
+                  method = "spearman", exact = FALSE)
+  cor_total <- bind_rows(cor_total, data.frame(
+    Predictor = "IoT Total",
+    Outcome   = v,
+    rho       = round(ct$estimate, 3),
+    p_raw     = round(ct$p.value, 4),
+    n         = sum(idx)
+  ))
+}
+
+cor_total$p_fdr   <- round(p.adjust(cor_total$p_raw, method = "BH"), 4)
+cor_total$Sig_raw <- ifelse(cor_total$p_raw < .001, "***",
+                            ifelse(cor_total$p_raw < .01,  "**",
+                                   ifelse(cor_total$p_raw < .05,  "*", "ns")))
+cor_total$Sig_fdr <- ifelse(cor_total$p_fdr < .001, "***",
+                            ifelse(cor_total$p_fdr < .01,  "**",
+                                   ifelse(cor_total$p_fdr < .05,  "*", "ns")))
+
+print(as.data.frame(cor_total))
+
+write_csv(cor_total, "results/Script2_iot_total_vs_outcomes_FDR.csv")
+cat("\nSaved: results/Script2_iot_total_vs_outcomes_FDR.csv\n")
 
 # ----------------------------------------------------------------------------
 # 8. Comorbidity effects on key outcomes (supplementary checks)
@@ -375,3 +441,76 @@ write_csv(summary_table, "results/table1_summary.csv")
 cat("\nDone. Summary table saved to results/table1_summary.csv\n")
 
 # Next: Script_3_GroupComparisons.R
+
+
+# ----------------------------------------------------------------------------
+# Formal test of the subscale contrast
+# ----------------------------------------------------------------------------
+# The paper claims the Engagement-PCOSQOL association is stronger than the
+# Self-Monitoring-PCOSQOL association. Comparing "significant" with
+# "non-significant" is not a test of that difference (Gelman & Stern, 2006).
+# Steiger's test compares two dependent, overlapping correlations.
+
+library(cocor)
+
+d <- df[complete.cases(df$pcosqol_total, df$iot_engagement, df$iot_selfmon), ]
+
+cat("Engagement x Self-Monitoring intercorrelation (Spearman):\n")
+print(cor.test(d$iot_engagement, d$iot_selfmon, method = "spearman", exact = FALSE))
+
+cocor.dep.groups.overlap(
+  r.jk = cor(d$pcosqol_total, d$iot_engagement, method = "spearman"),
+  r.jh = cor(d$pcosqol_total, d$iot_selfmon,    method = "spearman"),
+  r.kh = cor(d$iot_engagement, d$iot_selfmon,   method = "spearman"),
+  n = nrow(d), alternative = "two.sided", test = "steiger1980"
+)
+
+
+
+
+
+
+
+
+
+cocor.dep.groups.overlap(
+  r.jk = cor(d$pcosqol_total, d$iot_engagement),
+  r.jh = cor(d$pcosqol_total, d$iot_selfmon),
+  r.kh = cor(d$iot_engagement, d$iot_selfmon),
+  n = nrow(d), alternative = "two.sided", test = "steiger1980"
+)
+
+
+
+
+
+
+
+
+cocor.dep.groups.overlap(
+  r.jk = cor(d$ede_q7_global, d$iot_engagement, method = "spearman"),
+  r.jh = cor(d$ede_q7_global, d$iot_selfmon,    method = "spearman"),
+  r.kh = cor(d$iot_engagement, d$iot_selfmon,   method = "spearman"),
+  n = nrow(d), alternative = "two.sided", test = "steiger1980"
+)
+
+
+
+cocor.dep.groups.overlap(
+  r.jk = cor(d$swemwbs_total, d$iot_engagement, method = "spearman"),
+  r.jh = cor(d$swemwbs_total, d$iot_selfmon,    method = "spearman"),
+  r.kh = cor(d$iot_engagement, d$iot_selfmon,   method = "spearman"),
+  n = nrow(d), alternative = "two.sided", test = "steiger1980"
+)
+
+
+
+
+
+
+
+c(raw = shapiro.test(df$MET_total)$statistic,
+  log = shapiro.test(df$MET_total_log)$statistic)
+
+
+p.adjust(c(0.0008, 0.2861, 0.0124), method = "BH")

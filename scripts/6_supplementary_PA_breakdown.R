@@ -155,7 +155,7 @@ for (i in seq_along(pa_vars)) {
 # ----------------------------------------------------------------------------
 
 cat("--- Section 3: IoT subscales vs PA sub-components (exploratory) ---\n")
-cat("BH FDR correction applied across 6 tests (2 subscales x 3 PA outcomes).\n\n")
+cat("BH FDR correction applied within each predictor (3 PA outcomes per predictor).\n\n")
 
 subscales       <- c("iot_engagement", "iot_selfmon")
 subscale_labels <- c("IoT Engagement", "IoT Self-Monitoring")
@@ -178,7 +178,11 @@ for (j in seq_along(subscales)) {
   }
 }
 
-cor_subscale$p_fdr   <- round(p.adjust(cor_subscale$p_raw, method = "BH"), 4)
+# BH FDR applied WITHIN each predictor (3 PA outcomes per predictor),
+# matching the per-predictor family used in Scripts 2 and 3.
+cor_subscale$p_fdr <- round(
+  ave(cor_subscale$p_raw, cor_subscale$Predictor,
+      FUN = function(p) p.adjust(p, method = "BH")), 4)
 cor_subscale$Sig_raw <- ifelse(cor_subscale$p_raw < .001, "***",
                         ifelse(cor_subscale$p_raw < .01,  "**",
                         ifelse(cor_subscale$p_raw < .05,  "*",

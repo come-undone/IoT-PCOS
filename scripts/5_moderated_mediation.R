@@ -17,13 +17,46 @@
 # Sensitivity: 6 mediators x 4 covariate conditions = 24 models
 #
 # Input:  data-processed/cleaned_data.rds (from Script 1)
+# Output: results/Script5_conditional_indirect_age.csv  (Figure 5)
+#         results/Script5_moderation_a3.csv             (Figure 5 legend)
+#
 # Run order: Script 1 -> 2 -> 3 -> 4 -> THIS SCRIPT
 # ============================================================================
 
 library(tidyverse)
 library(lavaan)
 library(parameters)
+library(semTools)
 
+
+# ----------------------------------------------------------------------------
+# Monte Carlo CIs for indirect effects
+# ----------------------------------------------------------------------------
+# Same helper as Script 4, repeated here so this script runs standalone.
+# lavaan's default CI for a := parameter is the delta method, which assumes
+# a*b is normally distributed. The product of two normals is skewed, so that
+# assumption does not hold. Monte Carlo CIs draw from the estimated parameter
+# distribution and take the empirical percentiles instead (Preacher & Selig,
+# 2012). 100,000 draws; seeded so the CIs are reproducible.
+
+MC_REPS <- 100000
+MC_SEED <- 20240607
+
+mc_ci <- function(fit, reps = MC_REPS, seed = MC_SEED) {
+  if (is.null(fit)) return(invisible(NULL))
+  set.seed(seed)
+  out <- tryCatch(
+    semTools::monteCarloCI(fit, nRep = reps),
+    error = function(e) {
+      cat("  [Monte Carlo CI not computed:", conditionMessage(e), "]\n")
+      NULL
+    }
+  )
+  if (is.null(out)) return(invisible(NULL))
+  cat("\nMonte Carlo 95% CI (", reps, " draws):\n", sep = "")
+  print(round(out, 4))
+  invisible(out)
+}
 
 # ----------------------------------------------------------------------------
 # 1. Load data and create centred variables
@@ -46,9 +79,10 @@ df <- df %>%
     iot_x_comor = iot_c * comor_c
   )
 
-sd_age   <- sd(df$age,               na.rm = TRUE)
-sd_years <- sd(df$years_diagnosed,   na.rm = TRUE)
-sd_comor <- sd(df$comorbidity_count, na.rm = TRUE)
+mean_age <- mean(df$age,               na.rm = TRUE)
+sd_age   <- sd(df$age,                 na.rm = TRUE)
+sd_years <- sd(df$years_diagnosed,     na.rm = TRUE)
+sd_comor <- sd(df$comorbidity_count,   na.rm = TRUE)
 
 # Centring check - all should be ~0
 cat("\nCentring check:\n")
@@ -59,8 +93,8 @@ cat("  comor_c:", round(mean(df$comor_c, na.rm = TRUE), 4), "\n")
 
 cat("\nModerator SDs (used for conditional indirect effects at +/- 1 SD):\n")
 cat("  SD age:  ", round(sd_age, 2),
-    "-> Low ~", round(mean(df$age, na.rm = TRUE) - sd_age, 0),
-    "| High ~", round(mean(df$age, na.rm = TRUE) + sd_age, 0), "\n")
+    "-> Low ~", round(mean_age - sd_age, 0),
+    "| High ~", round(mean_age + sd_age, 0), "\n")
 cat("  SD years:", round(sd_years, 2), "\n")
 cat("  SD comor:", round(sd_comor, 2), "\n\n")
 
@@ -83,6 +117,7 @@ model_baseline <- '
 fit_baseline <- lavaan::sem(model_baseline, data = df,
                             missing = "fiml", estimator = "MLR")
 model_parameters(fit_baseline) |> display()
+mc_ci(fit_baseline)
 
 
 # ----------------------------------------------------------------------------
@@ -108,6 +143,7 @@ run_sensitivity <- function(outcome, mediator, predictor, covariate = NULL,
 
 mediators <- list(
   EDE_Q7    = "ede_q7_global",
+  ISI       = "isi_total",
   SWEMWBS   = "swemwbs_total",
   MET_total = "MET_total_log",
   MVPA      = "MVPA",
@@ -128,7 +164,10 @@ for (med_name in names(mediators)) {
       run_sensitivity("pcosqol_total", med_var, "iot_total", cov_var, df),
       error = function(e) { cat("  ERROR:", e$message, "\n"); NULL }
     )
-    if (!is.null(fit)) model_parameters(fit) |> display() |> print()
+    if (!is.null(fit)) {
+      model_parameters(fit) |> display() |> print()
+      mc_ci(fit)
+    }
   }
 }
 
@@ -148,10 +187,10 @@ run_modmed <- function(mediator, moderator, interaction, sd_mod, data,
                        extra_covs) {
   model <- paste0('
     ', mediator, ' ~ a1*iot_c + a2*', moderator, ' + a3*', interaction,
-    extra_covs, '
+                  extra_covs, '
 
     pcosqol_total ~ b*', mediator, ' + c1*iot_c + c2*', moderator,
-    ' + c3*', interaction, extra_covs, '
+                  ' + c3*', interaction, extra_covs, '
 
     indirect_mean  := a1 * b
     indirect_low   := (a1 + a3*(-', sd_mod, ')) * b
@@ -226,6 +265,8 @@ combinations <- list(
 
 cat("\n--- Moderated mediation (18 models) ---\n")
 
+fit_ede_age <- NULL   # kept for the stability check and export below
+
 for (combo in combinations) {
   cat("\nMODEL:", combo$label, "\n")
   fit <- tryCatch(
@@ -233,7 +274,83 @@ for (combo in combinations) {
                extra_covs = combo$extra_covs),
     error = function(e) { cat("ERROR:", e$message, "\n"); NULL }
   )
-  if (!is.null(fit)) model_parameters(fit) |> display() |> print()
+  if (!is.null(fit)) {
+    model_parameters(fit) |> display() |> print()
+    mc_ci(fit)
+  }
+  if (combo$label == "EDE-Q7 x Age") fit_ede_age <- fit
 }
+
+# ----------------------------------------------------------------------------
+# 5. Monte Carlo stability check - primary moderated mediation model
+# ----------------------------------------------------------------------------
+# The three conditional indirect effects reported in the manuscript come from
+# the EDE-Q7 x Age model. Repeating the draw under ten seeds confirms that the
+# interval bounds are a property of the data and not of the simulation.
+
+cat("\n\n--- Monte Carlo stability check: EDE-Q7 x Age (10 seeds) ---\n")
+
+for (s in 1:10) {
+  set.seed(s)
+  o <- semTools::monteCarloCI(fit_ede_age, nRep = MC_REPS)
+  cat(sprintf("  seed %2d |  low %7.4f [%7.4f, %7.4f]  mean %7.4f [%7.4f, %7.4f]  high %7.4f [%7.4f, %7.4f]\n",
+              s,
+              o["indirect_low",  "est"], o["indirect_low",  "ci.lower"], o["indirect_low",  "ci.upper"],
+              o["indirect_mean", "est"], o["indirect_mean", "ci.lower"], o["indirect_mean", "ci.upper"],
+              o["indirect_high", "est"], o["indirect_high", "ci.lower"], o["indirect_high", "ci.upper"]))
+}
+
+
+# ----------------------------------------------------------------------------
+# 6. Export for Script 7
+# ----------------------------------------------------------------------------
+# Figure 5 previously took its values from the console output above. Writing
+# them here means the figure is rebuilt from the fitted model rather than from
+# transcription. monteCarloCI is re-run under the same seed as Section 4, so
+# the values are identical to those already printed.
+
+dir.create("results", showWarnings = FALSE)
+
+cat("\n\n--- Export ---\n")
+
+stopifnot(!is.null(fit_ede_age))
+
+set.seed(MC_SEED)
+mc_age <- semTools::monteCarloCI(fit_ede_age, nRep = MC_REPS)
+
+conditional_age <- data.frame(
+  age_level = c("low", "mean", "high"),
+  age_value = round(c(mean_age - sd_age, mean_age, mean_age + sd_age), 0),
+  B         = round(mc_age[c("indirect_low", "indirect_mean", "indirect_high"), "est"],      4),
+  ci_lo     = round(mc_age[c("indirect_low", "indirect_mean", "indirect_high"), "ci.lower"], 4),
+  ci_hi     = round(mc_age[c("indirect_low", "indirect_mean", "indirect_high"), "ci.upper"], 4),
+  row.names = NULL
+)
+
+# An interval is treated as excluding zero when both bounds share a sign.
+conditional_age$sig <- with(conditional_age, ci_hi < 0 | ci_lo > 0)
+
+print(conditional_age)
+write_csv(conditional_age, "results/Script5_conditional_indirect_age.csv")
+cat("Saved: results/Script5_conditional_indirect_age.csv\n")
+
+# The a3 interaction term, quoted in the Results text and the Figure 5 legend
+pe_age <- lavaan::parameterEstimates(fit_ede_age)
+a3_row <- pe_age[pe_age$label == "a3", ][1, ]
+
+moderation_a3 <- data.frame(
+  parameter = "a3: IoT x age -> EDE-Q7",
+  B         = round(a3_row$est,    6),
+  SE        = round(a3_row$se,     6),
+  z         = round(a3_row$z,      4),
+  p         = round(a3_row$pvalue, 4),
+  sd_age    = round(sd_age,        4),
+  mean_age  = round(mean_age,      4)
+)
+
+print(moderation_a3)
+write_csv(moderation_a3, "results/Script5_moderation_a3.csv")
+cat("Saved: results/Script5_moderation_a3.csv\n")
+
 
 cat("\nScript 5 complete.\n")

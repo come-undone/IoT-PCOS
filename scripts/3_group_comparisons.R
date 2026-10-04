@@ -110,6 +110,7 @@ for (v in outcomes) {
     g      = df_sub$iot_category,
     method = "bonferroni",
     alpha  = 0.05,
+    altp   = TRUE,
     list   = FALSE,
     table  = TRUE
   )
@@ -119,10 +120,10 @@ for (v in outcomes) {
     Outcome    = v,
     Comparison = dunn$comparisons,
     Z          = round(dunn$Z, 3),
-    p_adj      = round(dunn$P.adjusted, 4),
-    Sig        = ifelse(dunn$P.adjusted < .001, "***",
-                 ifelse(dunn$P.adjusted < .01,  "**",
-                 ifelse(dunn$P.adjusted < .05,  "*", "ns")))
+    p_adj      = round(dunn$altP.adjusted, 4),
+    Sig        = ifelse(dunn$altP.adjusted < .001, "***",
+                 ifelse(dunn$altP.adjusted < .01,  "**",
+                 ifelse(dunn$altP.adjusted < .05,  "*", "ns")))
   )
 }
 
@@ -215,7 +216,7 @@ for (v in outcomes) {
   if (kw$p.value < .05) {
     cat("Dunn post-hoc (Bonferroni):\n")
     dunn.test::dunn.test(df_sub[[v]], df_sub$eng_group,
-                         method = "bonferroni", alpha = 0.05,
+                         method = "bonferroni", alpha = 0.05, altp = TRUE,
                          list = FALSE, table = TRUE)
     cat("\n")
   }
@@ -284,7 +285,7 @@ for (v in outcomes) {
   if (kw$p.value < .05) {
     cat("Dunn post-hoc (Bonferroni):\n")
     dunn.test::dunn.test(df_sub[[v]], df_sub$sm_group,
-                         method = "bonferroni", alpha = 0.05,
+                         method = "bonferroni", alpha = 0.05, altp = TRUE,
                          list = FALSE, table = TRUE)
     cat("\n")
   }

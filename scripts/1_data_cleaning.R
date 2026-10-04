@@ -23,7 +23,7 @@ library(PostcodesioR)
 df_raw <- read_excel(
   "~/OneDrive - University of Wolverhampton/IoT-PCOS/raw_data/IoT and PCOS UK92 - Claudio Antonio.xlsx",
   sheet = "Full with IPAQ-SF",
-  na    = ""
+  na = c("", "NA")
 )
 
 # n = 91, 116 columns expected

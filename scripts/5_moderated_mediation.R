@@ -13,8 +13,8 @@
 #   Y = b*M  + c1*X + c2*W + c3*(X*W) + covariates
 #   X = iot_c, M = mediator, W = moderator, Y = pcosqol_total
 #
-# 6 mediators x 3 moderators = 18 primary models
-# Sensitivity: 6 mediators x 4 covariate conditions = 24 models
+# 7 mediators x 3 moderators = 21 primary models
+# Sensitivity: 7 mediators x 4 covariate conditions = 28 models
 #
 # Input:  data-processed/cleaned_data.rds (from Script 1)
 # Output: results/Script5_conditional_indirect_age.csv  (Figure 5)
@@ -121,7 +121,7 @@ mc_ci(fit_baseline)
 
 
 # ----------------------------------------------------------------------------
-# 3. Sensitivity analyses - 6 mediators x 4 covariate conditions
+# 3. Sensitivity analyses - 7 mediators x 4 covariate conditions
 # ----------------------------------------------------------------------------
 # Tests whether mediation findings hold across different covariate
 # specifications. Results reported in supplementary material.
@@ -173,7 +173,7 @@ for (med_name in names(mediators)) {
 
 
 # ----------------------------------------------------------------------------
-# 4. Moderated mediation - 18 models (6 mediators x 3 moderators)
+# 4. Moderated mediation - 21 models (7 mediators x 3 moderators)
 # ----------------------------------------------------------------------------
 # Key test: a3 - does the moderator change path a (IoT -> mediator)?
 # Conditional indirect effects at -1 SD, mean, +1 SD of each moderator.
@@ -260,10 +260,20 @@ combinations <- list(
        extra_covs="+ age + comorbidity_count"),
   list(med="MET_walk",      mod="comor_c", int="iot_x_comor", sd=sd_comor,
        label="Walking x Comorbidities",
+       extra_covs="+ age + years_diagnosed"),
+  # Sitting time (hours/weekday)
+  list(med="sitting_hours", mod="age_c",   int="iot_x_age",   sd=sd_age,
+       label="Sitting x Age",
+       extra_covs="+ years_diagnosed + comorbidity_count"),
+  list(med="sitting_hours", mod="years_c", int="iot_x_years", sd=sd_years,
+       label="Sitting x Years diagnosed",
+       extra_covs="+ age + comorbidity_count"),
+  list(med="sitting_hours", mod="comor_c", int="iot_x_comor", sd=sd_comor,
+       label="Sitting x Comorbidities",
        extra_covs="+ age + years_diagnosed")
 )
 
-cat("\n--- Moderated mediation (18 models) ---\n")
+cat("\n--- Moderated mediation (21 models) ---\n")
 
 fit_ede_age <- NULL   # kept for the stability check and export below
 

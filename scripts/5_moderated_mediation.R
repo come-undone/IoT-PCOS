@@ -6,9 +6,9 @@
 # Purpose: Test whether age, years since diagnosis, or comorbidity count
 #          moderate the IoT -> [mediator] -> PCOSQOL pathway.
 # Method:  lavaan::sem(), MLR estimator, FIML for missing data
-#          (Hayes, 2022; Field, 2026 Ch.10)
+#          (Hayes, 2018; Field, 2026 Ch.10)
 #
-# Model structure (moderated mediation at path a):
+# Model structure (Hayes Model 8: moderation of path a and the direct path):
 #   M = a1*X + a2*W + a3*(X*W) + covariates
 #   Y = b*M  + c1*X + c2*W + c3*(X*W) + covariates
 #   X = iot_c, M = mediator, W = moderator, Y = pcosqol_total
@@ -53,8 +53,10 @@ mc_ci <- function(fit, reps = MC_REPS, seed = MC_SEED) {
     }
   )
   if (is.null(out)) return(invisible(NULL))
-  cat("\nMonte Carlo 95% CI (", reps, " draws):\n", sep = "")
-  print(round(out, 4))
+  cat("\nMonte Carlo 95% CI (", format(reps, big.mark = ",", scientific = FALSE), " draws):\n", sep = "")
+  out_print <- round(out, 4)
+  class(out_print) <- "data.frame"
+  print(out_print)
   invisible(out)
 }
 
@@ -69,7 +71,9 @@ cat("N =", nrow(df), "\n")
 
 df <- df %>%
   mutate(
-    MVPA    = MET_moderate + MET_vigorous,
+    # PA sub-components in hundreds of MET-min/week, as in Script 4
+    MVPA_h  = (MET_moderate + MET_vigorous) / 100,
+    walk_h  = MET_walk / 100,
     iot_c   = iot_total         - mean(iot_total,          na.rm = TRUE),
     age_c   = age               - mean(age,                na.rm = TRUE),
     years_c = years_diagnosed   - mean(years_diagnosed,    na.rm = TRUE),
@@ -103,7 +107,9 @@ cat("  SD comor:", round(sd_comor, 2), "\n\n")
 # 2. Baseline mediation - EDE-Q7, no moderator
 # ----------------------------------------------------------------------------
 # Re-confirms core EDE-Q7 mediation using iot_c.
-# Output should match Script 4 Section 3c exactly.
+# Estimates match Script 4 Section 3c; 
+# Monte Carlo limits may differ in the third decimal 
+# (parameters are listed in a different order).
 
 cat("--- Baseline mediation: EDE-Q7 (no moderator) ---\n")
 
@@ -126,7 +132,7 @@ mc_ci(fit_baseline)
 # Tests whether mediation findings hold across different covariate
 # specifications. Results reported in supplementary material.
 
-cat("\n--- Sensitivity analyses (6 mediators x 4 covariate conditions) ---\n")
+cat("\n--- Sensitivity analyses (7 mediators x 4 covariate conditions) ---\n")
 cat("Note: Supplementary material only.\n\n")
 
 run_sensitivity <- function(outcome, mediator, predictor, covariate = NULL,
@@ -146,8 +152,8 @@ mediators <- list(
   ISI       = "isi_total",
   SWEMWBS   = "swemwbs_total",
   MET_total = "MET_total_log",
-  MVPA      = "MVPA",
-  Walk      = "MET_walk",
+  MVPA      = "MVPA_h",
+  Walk      = "walk_h",
   Sitting   = "sitting_hours"
 )
 
@@ -180,8 +186,8 @@ for (med_name in names(mediators)) {
 #
 # COLLINEARITY NOTE: When a variable serves as the moderator, it is excluded
 # from the covariate list (extra_covs) to avoid perfect collinearity between
-# the centred moderator and its raw version. The remaining two demographic
-# variables are retained as covariates in all models.
+# the centred moderator and its raw version. The remaining two covariates
+# are retained in all models.
 
 run_modmed <- function(mediator, moderator, interaction, sd_mod, data,
                        extra_covs) {
@@ -195,6 +201,7 @@ run_modmed <- function(mediator, moderator, interaction, sd_mod, data,
     indirect_mean  := a1 * b
     indirect_low   := (a1 + a3*(-', sd_mod, ')) * b
     indirect_high  := (a1 + a3*(+', sd_mod, ')) * b
+    index_modmed   := a3 * b
     total          := c1 + (a1 * b)
   ')
   lavaan::sem(model, data = data, missing = "fiml", estimator = "MLR")
@@ -242,23 +249,23 @@ combinations <- list(
        label="MET total x Comorbidities",
        extra_covs="+ age + years_diagnosed"),
   # MVPA
-  list(med="MVPA",          mod="age_c",   int="iot_x_age",   sd=sd_age,
+  list(med="MVPA_h",          mod="age_c",   int="iot_x_age",   sd=sd_age,
        label="MVPA x Age",
        extra_covs="+ years_diagnosed + comorbidity_count"),
-  list(med="MVPA",          mod="years_c", int="iot_x_years", sd=sd_years,
+  list(med="MVPA_h",          mod="years_c", int="iot_x_years", sd=sd_years,
        label="MVPA x Years diagnosed",
        extra_covs="+ age + comorbidity_count"),
-  list(med="MVPA",          mod="comor_c", int="iot_x_comor", sd=sd_comor,
+  list(med="MVPA_h",          mod="comor_c", int="iot_x_comor", sd=sd_comor,
        label="MVPA x Comorbidities",
        extra_covs="+ age + years_diagnosed"),
   # Walking
-  list(med="MET_walk",      mod="age_c",   int="iot_x_age",   sd=sd_age,
+  list(med="walk_h",      mod="age_c",   int="iot_x_age",   sd=sd_age,
        label="Walking x Age",
        extra_covs="+ years_diagnosed + comorbidity_count"),
-  list(med="MET_walk",      mod="years_c", int="iot_x_years", sd=sd_years,
+  list(med="walk_h",      mod="years_c", int="iot_x_years", sd=sd_years,
        label="Walking x Years diagnosed",
        extra_covs="+ age + comorbidity_count"),
-  list(med="MET_walk",      mod="comor_c", int="iot_x_comor", sd=sd_comor,
+  list(med="walk_h",      mod="comor_c", int="iot_x_comor", sd=sd_comor,
        label="Walking x Comorbidities",
        extra_covs="+ age + years_diagnosed"),
   # Sitting time (hours/weekday)
@@ -344,9 +351,11 @@ print(conditional_age)
 write_csv(conditional_age, "results/Script5_conditional_indirect_age.csv")
 cat("Saved: results/Script5_conditional_indirect_age.csv\n")
 
-# The a3 interaction term, quoted in the Results text and the Figure 5 legend
+# a3 (age x use on path a), c3 (age x use on the direct path) and the index
+# of moderated mediation, quoted in the Results text and the Figure 5 legend
 pe_age <- lavaan::parameterEstimates(fit_ede_age)
 a3_row <- pe_age[pe_age$label == "a3", ][1, ]
+c3_row <- pe_age[pe_age$label == "c3", ][1, ]
 
 moderation_a3 <- data.frame(
   parameter = "a3: IoT x age -> EDE-Q7",
@@ -354,6 +363,12 @@ moderation_a3 <- data.frame(
   SE        = round(a3_row$se,     6),
   z         = round(a3_row$z,      4),
   p         = round(a3_row$pvalue, 4),
+  c3_B      = round(c3_row$est,    4),
+  c3_SE     = round(c3_row$se,     4),
+  c3_p      = round(c3_row$pvalue, 4),
+  index_B   = round(mc_age["index_modmed", "est"],      4),
+  index_lo  = round(mc_age["index_modmed", "ci.lower"], 4),
+  index_hi  = round(mc_age["index_modmed", "ci.upper"], 4),
   sd_age    = round(sd_age,        4),
   mean_age  = round(mean_age,      4)
 )
@@ -364,3 +379,11 @@ cat("Saved: results/Script5_moderation_a3.csv\n")
 
 
 cat("\nScript 5 complete.\n")
+
+
+fit_tmp <- run_modmed("swemwbs_total", "comor_c", "iot_x_comor", sd_comor, df,
+                      extra_covs = "+ age + years_diagnosed")
+set.seed(20240607)
+x <- semTools::monteCarloCI(fit_tmp, nRep = 100000)
+class(x) <- "data.frame"
+print(x["indirect_high", ], digits = 8)

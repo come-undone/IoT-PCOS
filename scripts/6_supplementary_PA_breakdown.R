@@ -5,7 +5,7 @@
 #
 # Purpose: Supplementary analyses examining IoT use (total and subscales)
 #          against PA sub-components and sedentary behaviour.
-#          Not reported in the main Results chapter.
+#          Reported in Supplemental Material 3 (Table 3.1).
 #
 # Rationale: PCOS guidelines specifically recommend MVPA. Sitting time is
 #          an independent cardiometabolic risk factor in PCOS. These
@@ -20,7 +20,7 @@
 # PA variables:
 #   MVPA_total    = MET_moderate + MET_vigorous (MET-min/week)
 #   MET_walk      = Walking MET-min/week
-#   sitting_hours = Daily sitting hours (higher = more sedentary)
+#   sitting_hours = Sitting hours per weekday (higher = more sedentary)
 #
 # Input:  data-processed/cleaned_data.rds (from Script 1)
 # Output: results/Script6_iot_total_vs_PA.csv
@@ -70,7 +70,7 @@ df <- df %>%
 
 pa_vars   <- c("MVPA_total", "MET_walk", "sitting_hours")
 pa_labels <- c("MVPA MET-min/week", "Walking MET-min/week",
-               "Sitting hours/day")
+               "Sitting hours/weekday")
 
 
 # ----------------------------------------------------------------------------
@@ -91,13 +91,14 @@ for (i in seq_along(pa_vars)) {
   cor_total <- bind_rows(cor_total, data.frame(
     Predictor = "IoT total",
     Outcome   = pa_labels[i],
-    rho       = round(ct$estimate, 3),
-    p_raw     = round(ct$p.value, 4),
+    rho       = round(unname(ct$estimate), 3),
+    p_raw     = ct$p.value,
     n         = sum(idx)
   ))
 }
 
 cor_total$p_fdr   <- round(p.adjust(cor_total$p_raw, method = "BH"), 4)
+cor_total$p_raw   <- round(cor_total$p_raw, 4)
 cor_total$Sig_raw <- ifelse(cor_total$p_raw < .001, "***",
                      ifelse(cor_total$p_raw < .01,  "**",
                      ifelse(cor_total$p_raw < .05,  "*",
@@ -130,15 +131,16 @@ for (i in seq_along(pa_vars)) {
 
   kw     <- kruskal.test(as.formula(paste(pa_vars[i], "~ iot_category")),
                          data = df_sub)
-  eps_sq <- max(0, (kw$statistic - k + 1) / (n_total - k))
+  # Eta-squared based on H (Tomczak & Tomczak, 2014); negative values set to 0
+  eta2_H <- max(0, (kw$statistic - k + 1) / (n_total - k))
   sig    <- ifelse(kw$p.value < .001, "***",
              ifelse(kw$p.value < .01,  "**",
              ifelse(kw$p.value < .05,  "*",
              ifelse(kw$p.value < .10,  "t", "ns"))))
 
-  cat(sprintf("%s: H(%d) = %.3f, p = %.4f %s, epsilon2 = %.3f\n\n",
+  cat(sprintf("%s: H(%d) = %.3f, p = %.4f %s, eta2_H = %.3f\n\n",
               pa_labels[i], kw$parameter, kw$statistic,
-              kw$p.value, sig, eps_sq))
+              kw$p.value, sig, eta2_H))
 
   if (kw$p.value < .10) {
     cat("Dunn post-hoc (Bonferroni):\n")
@@ -158,7 +160,7 @@ cat("--- Section 3: IoT subscales vs PA sub-components (exploratory) ---\n")
 cat("BH FDR correction applied within each predictor (3 PA outcomes per predictor).\n\n")
 
 subscales       <- c("iot_engagement", "iot_selfmon")
-subscale_labels <- c("IoT Engagement", "IoT Self-Monitoring")
+subscale_labels <- c("Information-seeking use", "Self-monitoring use")
 
 # 3a: Spearman correlations
 cor_subscale <- data.frame()
@@ -171,8 +173,8 @@ for (j in seq_along(subscales)) {
     cor_subscale <- bind_rows(cor_subscale, data.frame(
       Predictor = subscale_labels[j],
       Outcome   = pa_labels[i],
-      rho       = round(ct$estimate, 3),
-      p_raw     = round(ct$p.value, 4),
+      rho       = round(unname(ct$estimate), 3),
+      p_raw     = ct$p.value,
       n         = sum(idx)
     ))
   }
@@ -183,6 +185,7 @@ for (j in seq_along(subscales)) {
 cor_subscale$p_fdr <- round(
   ave(cor_subscale$p_raw, cor_subscale$Predictor,
       FUN = function(p) p.adjust(p, method = "BH")), 4)
+cor_subscale$p_raw <- round(cor_subscale$p_raw, 4)
 cor_subscale$Sig_raw <- ifelse(cor_subscale$p_raw < .001, "***",
                         ifelse(cor_subscale$p_raw < .01,  "**",
                         ifelse(cor_subscale$p_raw < .05,  "*",
@@ -198,8 +201,8 @@ cat("\n")
 # 3b: Kruskal-Wallis by subscale tertile groups
 for (group_v in c("eng_group", "selfmon_group")) {
   g_label <- ifelse(group_v == "eng_group",
-                    "IoT Engagement tertile",
-                    "IoT Self-Monitoring tertile")
+                    "Information-seeking use tertile",
+                    "Self-monitoring use tertile")
   cat(sprintf("Kruskal-Wallis: %s vs PA sub-components:\n\n", g_label))
 
   for (i in seq_along(pa_vars)) {
@@ -220,15 +223,15 @@ for (group_v in c("eng_group", "selfmon_group")) {
 
     kw     <- kruskal.test(as.formula(paste(pa_vars[i], "~", group_v)),
                            data = df_sub)
-    eps_sq <- max(0, (kw$statistic - k + 1) / (n_total - k))
+    eta2_H <- max(0, (kw$statistic - k + 1) / (n_total - k))
     sig    <- ifelse(kw$p.value < .001, "***",
                ifelse(kw$p.value < .01,  "**",
                ifelse(kw$p.value < .05,  "*",
                ifelse(kw$p.value < .10,  "t", "ns"))))
 
-    cat(sprintf("%s: H(%d) = %.3f, p = %.4f %s, epsilon2 = %.3f\n\n",
+    cat(sprintf("%s: H(%d) = %.3f, p = %.4f %s, eta2_H = %.3f\n\n",
                 pa_labels[i], kw$parameter, kw$statistic,
-                kw$p.value, sig, eps_sq))
+                kw$p.value, sig, eta2_H))
 
     if (kw$p.value < .10) {
       cat("Dunn post-hoc (Bonferroni):\n")

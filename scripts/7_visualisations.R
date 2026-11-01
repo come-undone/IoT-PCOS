@@ -45,6 +45,7 @@ library(patchwork)
 library(scales)
 library(readxl)
 library(ragg)
+library(here)
 
 df <- readRDS("data-processed/cleaned_data.rds")
 cat("N =", nrow(df), "\n")
@@ -54,7 +55,7 @@ dir.create("figures", showWarnings = FALSE)
 # Raw survey export. Only Figure 9 needs it, because the coexisting-conditions
 # free-text item is not carried into cleaned_data.rds. Set once here so the
 # path is edited in a single place when the script is run elsewhere.
-RAW_DATA <- "~/OneDrive - University of Wolverhampton/IoT-PCOS/raw_data/IoT and PCOS UK92 - Claudio Antonio.xlsx"
+RAW_DATA <- here::here("raw_data", "Digital_Health_Tech_PMOS_UK92_deidentified.xlsx")
 
 # Fails loudly rather than silently falling back to stale values.
 read_results <- function(file) {
@@ -140,8 +141,8 @@ stars <- function(p) {
   ifelse(p < .001, "***", ifelse(p < .01, "**", ifelse(p < .05, "*", "")))
 }
 
-# Cohen-style bands for epsilon-squared: >= .01 small, >= .06 medium, >= .14 large
-eps_band <- function(e) {
+# Cohen (1988) bands for eta-squared (eta2_H): >= .01 small, >= .06 medium, >= .14 large
+eta_band <- function(e) {
   ifelse(e >= .14, "large",
          ifelse(e >= .06, "medium",
                 ifelse(e >= .01, "small", "negligible")))
@@ -373,11 +374,6 @@ fig5 <- ggplot(modmed_dat,
   # Zero reference
   geom_hline(yintercept = 0, linetype = "dashed",
              colour = COL_GREY, linewidth = 0.8) +
-  # Shaded CI band
-  geom_rect(aes(xmin = as.numeric(label) - 0.30,
-                xmax = as.numeric(label) + 0.30,
-                ymin = ci_lo, ymax = ci_hi),
-            alpha = 0.15, colour = NA) +
   # CI error bars
   geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi),
                 width = 0.15, linewidth = 1.2) +
@@ -442,10 +438,10 @@ posthoc <- read_results("Script3_posthoc.csv")
 # Kruskal-Wallis annotation for one outcome
 kw_label <- function(outcome) {
   r <- kw[kw$Outcome == outcome, ][1, ]
-  sprintf("H(%d) = %.2f, p %s%s\n\u03b5\u00b2 = %s (%s effect)",
+  sprintf("H(%d) = %.2f, p %s%s\n\u03b7\u00b2H = %s (%s effect)",
           as.integer(r$H_df), r$H_stat, fmt_p(r$p_KW), stars(r$p_KW),
-          sub("^0", "", sprintf("%.3f", r$epsilon_sq)),
-          eps_band(r$epsilon_sq))
+          sub("^0", "", sprintf("%.3f", r$eta2_H)),
+          eta_band(r$eta2_H))
 }
 
 # Dunn pairwise p for one outcome. Matched on both group names so the label
@@ -489,12 +485,12 @@ p_pcosqol <- ggplot(df_plot %>% filter(!is.na(pcosqol_total)),
   ) +
   scale_fill_manual(values   = TERTILE_COLS, guide = "none") +
   scale_colour_manual(values = TERTILE_COLS, guide = "none") +
-  annotate("text", x = 2, y = 210,
+  annotate("text", x = 2, y = 230,
            label = kw_label("pcosqol_total"),
            colour = COL_CORAL, size = 3, fontface = "italic") +
-  annotate("segment", x = 1, xend = 3, y = 200, yend = 200,
+  annotate("segment", x = 1, xend = 3, y = 208, yend = 208,
            colour = COL_CORAL, linewidth = 0.6) +
-  annotate("text", x = 2, y = 204,
+  annotate("text", x = 2, y = 214,
            label = dunn_label("pcosqol_total", "High", "Low"),
            colour = COL_CORAL, size = 2.8, fontface = "italic") +
   labs(
@@ -531,10 +527,10 @@ p_edq7 <- ggplot(df_plot %>% filter(!is.na(ede_q7_global)),
            colour = COL_GREY, size = 2.7, fontface = "italic", hjust = 0) +
   scale_fill_manual(values   = TERTILE_COLS, guide = "none") +
   scale_colour_manual(values = TERTILE_COLS, guide = "none") +
-  annotate("text", x = 2, y = 6.8,
+  annotate("text", x = 2, y = 7.05,
            label = kw_label("ede_q7_global"),
            colour = COL_TEAL, size = 3, fontface = "italic") +
-  annotate("segment", x = 1, xend = 3, y = 6.5, yend = 6.5,
+  annotate("segment", x = 1, xend = 3, y = 6.25, yend = 6.25,
            colour = COL_TEAL, linewidth = 0.6) +
   annotate("text", x = 2, y = 6.6,
            label = dunn_label("ede_q7_global", "High", "Low"),
@@ -608,7 +604,7 @@ outcome_labels_map <- c(
   "isi_total"          = "ISI  (\u2191 = worse insomnia)",
   "swemwbs_total"      = "SWEMWBS  (\u2191 = better wellbeing)",
   "MET_total"          = "Physical activity  (MET-min/week)",
-  "sitting_hours"      = "Sitting time  (hours/day)"
+  "sitting_hours"      = "Sitting time  (hours/weekday)"
 )
 
 rho_mat <- matrix(NA, nrow = length(outcome_vars), ncol = length(iot_vars),
@@ -665,17 +661,17 @@ fig7 <- ggplot(plot_dat, aes(x = predictor_label, y = outcome_label,
   geom_hline(yintercept = 5.5, linetype = "dashed", colour = COL_GREY, linewidth = 0.6) +
   scale_fill_gradientn(
     colours = c(COL_CORAL, "#F5CECE", "white", "#C5E4E9", COL_TEAL),
-    values  = rescale(c(-0.65, -0.25, 0, 0.25, 0.65)),
+    values  = scales::rescale(c(-0.65, -0.25, 0, 0.25, 0.65)),
     limits  = c(-0.65, 0.65),
-    oob     = squish,
+    oob     = scales::squish,
     name    = "Spearman \u03c1",
     guide   = guide_colorbar(barwidth = 0.8, barheight = 11,
                              title.position = "top", title.hjust = 0.5)
   ) +
   scale_x_discrete(position = "top") +
   labs(
-    title    = "Figure 7 - Spearman's rank-order correlations: digital health technology use and health outcomes",
-    subtitle = sprintf(paste0("Bold = significant (p < .05). Dashed line separates PCOSQOL subscales (above) from other outcomes (below).\n",
+    title    = "Figure 7 - Spearman's rank-order correlations:\ndigital health technology use and health outcomes",
+    subtitle = sprintf(paste0("Bold = p < .05 (uncorrected; see Tables 3 and 4 for FDR-corrected values).\nDashed line separates PCOSQOL subscales (above) from other outcomes (below).\n",
                               "Coral = negative correlation; teal = positive. n = %d (MET: n = %d; sitting: n = %d)."),
                        nrow(df), as.integer(n_met), as.integer(n_sitting)),
     caption  = "PCOSQOL: higher = better QoL; negative rho indicates worse QoL with higher use.\n* p < .05  ** p < .01  *** p < .001",
@@ -731,7 +727,7 @@ Y_LINE  <- 0.50
 
 nodes <- data.frame(
   label = c(paste0(EXPOSURE_LAB, "\n(Predictor)"),
-            "Disordered Eating\n(EDE-Q7)\nMediator",
+            "Disordered Eating\n(EDE-Q7)\n(Mediator)",
             "PCOSQOL\n(Outcome)"),
   x     = c(0.14, 0.50, 0.86),
   y     = Y_LINE,
@@ -797,7 +793,7 @@ fig8 <- ggplot() +
   labs(
     title    = "Figure 8 - Mediation model: disordered eating mediates the association between digital health technology use and QoL",
     subtitle = "MLR-SEM with FIML. Covariates: age, years diagnosed, coexisting health condition count. n = 89 (2 cases excluded due to missing covariate data).",
-    caption  = sprintf(paste0("Total effect (digital health technology use -> PCOSQOL, unadjusted): B = %.2f, SE = %.2f, p %s.",
+    caption  = sprintf(paste0("Total effect (digital health technology use -> PCOSQOL, adjusted for the same covariates): B = %.2f, SE = %.2f, p %s.",
                               "\nPartial mediation: direct effect remains significant after introducing the mediator.",
                               "\nHigher PCOSQOL = better QoL; higher EDE-Q7 = more disordered eating."),
                        p_tot$B, p_tot$SE, fmt_p(p_tot$p))
@@ -824,8 +820,9 @@ save_fig("Figure8_Mediation_Diagram", fig8, width = 12, height = 6.5)
 #   B - prevalence of each specific condition reported
 # The conditions sit in a free-text survey item that is not carried into
 # cleaned_data.rds, so this figure reads the raw export (RAW_DATA, set at the
-# top of this script) and counts them with the same case-insensitive matching
-# used in Script 1.
+# top of this script) and counts them case-insensitively. Unlike the Script 1
+# covariate (the 18 listed options only), these counts include conditions
+# typed under "Other" (for example, endometriosis and hypothyroidism).
 #
 # Denominator is the respondents who disclosed their conditions, matching
 # Script 2 and Table 1. Those who declined are unknown, not negative.
@@ -922,7 +919,7 @@ fig9 <- (p_count / p_cond) +
   plot_annotation(
     title   = "Figure 9 - Coexisting health conditions reported alongside PMOS (PCOS)",
     caption = sprintf(paste0("Percentages are of the %d respondents who disclosed their conditions; %d of %d preferred not to disclose and are excluded from both panels.",
-                             "\nParticipants could report more than one condition. LDL = low-density lipoprotein."),
+                             "\nParticipants could report more than one condition. Panel b shows each condition reported by five or more respondents,\nincluding conditions typed under 'Other'. LDL = low-density lipoprotein."),
                       as.integer(n_disclosed), as.integer(n_total - n_disclosed), as.integer(n_total)),
     theme   = theme(
       plot.title      = element_text(face = "bold", colour = COL_TEAL, size = 13),

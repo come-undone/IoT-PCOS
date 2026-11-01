@@ -4,9 +4,9 @@
 # March 2026
 #
 # Purpose: Produce all descriptive statistics and internal consistency
-#          estimates reported in the manuscript (Tables 1-3).
+#          estimates reported in the manuscript (Tables 1-4, Figure 2).
 #
-# Input:   data-processed/cleaned_data.rds (from Script_1_DataCleaning.R)
+# Input:   data-processed/cleaned_data.rds (from 1_data_cleaning.R)
 # Output:  results/table1_summary.csv
 # ============================================================================
 
@@ -56,6 +56,10 @@ cat(sprintf("  IoT (10 items):      %.3f\n", psych::alpha(df[, iot_cols])$total$
 cat(sprintf("  ISI (7 items):       %.3f\n", psych::alpha(df[, isi_cols])$total$raw_alpha))
 cat(sprintf("  EDE-Q7 (7 items):    %.3f\n", psych::alpha(df[, ede_cols])$total$raw_alpha))
 cat(sprintf("  SWEMWBS (7 items):   %.3f\n", psych::alpha(df[, swemwbs_cols])$total$raw_alpha))
+cat(sprintf("  IoT information seeking (items 1-5):  %.3f\n", psych::alpha(df[, paste0("iot_", 1:5)]
+)$total$raw_alpha))
+cat(sprintf("  IoT self-monitoring (items 6-10):     %.3f\n", psych::alpha(df[, paste0("iot_", 6:10)]
+)$total$raw_alpha))
 
 
 # ----------------------------------------------------------------------------
@@ -79,11 +83,6 @@ cat("\n--- Geographic distribution (nation) ---\n")
 nation_tbl <- table(df$nation, useNA = "ifany")
 print(nation_tbl)
 round(prop.table(nation_tbl) * 100, 1)
-
-cat("\n--- Urban vs Rural ---\n")
-urb_tbl <- table(df$urban_rural, useNA = "ifany")
-print(urb_tbl)
-round(prop.table(urb_tbl) * 100, 1)
 
 cat("\n--- Ethnicity ---\n")
 eth_tbl <- table(df$ethnicity_cat, useNA = "ifany")
@@ -135,7 +134,7 @@ summary(df$comorbidity_count)
 cat("SD:", round(sd(df$comorbidity_count, na.rm = TRUE), 1), "\n")
 cat("Missing:", sum(is.na(df$comorbidity_count)), "\n")
 
-cat("\n--- Comorbidity distribution (all self-reported, for Table 2) ---\n")
+cat("\n--- Comorbidity distribution (all self-reported, for Table 1) ---\n")
 cat("  None:          n =", sum(df$comorbidity_count_all == 0, na.rm = TRUE), "\n")
 cat("  1 condition:   n =", sum(df$comorbidity_count_all == 1, na.rm = TRUE), "\n")
 cat("  2 conditions:  n =", sum(df$comorbidity_count_all == 2, na.rm = TRUE), "\n")
@@ -153,7 +152,7 @@ n_multiple <- sum(df$comorbidity_count_all >= 2, na.rm = TRUE)
 cat(sprintf("  Multiple conditions (2+): n = %d (%.1f%%)\n",
             n_multiple, 100 * n_multiple / n_disclosed))
 
-cat("\n--- Specific condition prevalence (for Table 2) ---\n")
+cat("\n--- Specific condition prevalence (for Table 1) ---\n")
 cat("  Note: has_depression and has_anxiety use case-insensitive matching\n")
 cat("  and include free-text variants (e.g. Prenatal depression).\n")
 cat("  Denominator = 89 respondents who disclosed their conditions.\n\n")
@@ -179,7 +178,7 @@ table(df$tobacco_Q2, useNA = "ifany")
 
 
 # ----------------------------------------------------------------------------
-# 4. IoT usage patterns (Table 2)
+# 4. Digital Health Technology usage patterns (Table 2)
 # ----------------------------------------------------------------------------
 
 cat("\n--- IoT total score (0-30) ---\n")
@@ -225,7 +224,7 @@ for (i in seq_along(iot_cols)) {
 
 
 # ----------------------------------------------------------------------------
-# 5. Health outcomes (Table 3)
+# 5. Health outcomes (Table 2)
 # ----------------------------------------------------------------------------
 
 cat("\n--- Physical activity: MET-min/week (n=80, 11 missing) ---\n")
@@ -254,6 +253,26 @@ summary(df$swemwbs_total)
 cat("SD:", round(sd(df$swemwbs_total, na.rm = TRUE), 1), "\n")
 # Note: observed range is 11-34; no participant scored below 11 in this sample
 
+
+# Official SWEMWBS raw-to-metric conversion
+# Source: Stewart-Brown et al. (2009) Health Qual Life Outcomes 7:15, Table 3 (ref 40)
+# Raw scores 7 to 35 (29 values). Used ONLY for comparison with population norms;
+# all analyses continue to use the raw total (swemwbs_total).
+swemwbs_metric_lookup <- setNames(
+  c( 7.00,  9.51, 11.25, 12.40, 13.33, 14.08, 14.75, 15.32, 15.84, 16.36,   # raw 7-16
+     16.88, 17.43, 17.98, 18.59, 19.25, 19.98, 20.73, 21.54, 22.35, 23.21,   # raw 17-26
+     24.11, 25.03, 26.02, 27.03, 28.13, 29.31, 30.70, 32.55, 35.00),         # raw 27-35
+  7:35
+)
+stopifnot(length(swemwbs_metric_lookup) == 29)   # guard: table complete
+
+df$swemwbs_metric <- unname(swemwbs_metric_lookup[as.character(df$swemwbs_total)])
+stopifnot(sum(is.na(df$swemwbs_metric)) == sum(is.na(df$swemwbs_total)))  # every score converted
+
+cat("SWEMWBS metric: mean", round(mean(df$swemwbs_metric), 1),
+    "SD", round(sd(df$swemwbs_metric), 1), "\n")
+
+
 cat("\n--- PCOSQOL total (35-245, higher = better QoL) ---\n")
 summary(df$pcosqol_total)
 cat("SD:", round(sd(df$pcosqol_total, na.rm = TRUE), 1), "\n")
@@ -279,7 +298,8 @@ for (v in c("pcosqol_impact", "pcosqol_infertility",
 # statistic are corrected for non-normality. These summaries describe the data;
 # they do not select the tests.
 
-dist_vars <- c("iot_total", "MET_total", "MET_total_log",
+dist_vars <- c("age", "years_diagnosed", "iot_total", "iot_engagement", 
+               "iot_selfmon","MET_total", "MET_total_log",
                "isi_total", "ede_q7_global", "swemwbs_total", "pcosqol_total")
 
 # Guard: log(MET + 1) must change the shape. If this stops the script,
@@ -308,6 +328,11 @@ for (v in dist_vars) {
   qqline(x, col = "grey40", lwd = 1.5)
 }
 dev.off()
+
+# Missing physical activity data (n = 11): do respondents without IPAQ data
+# differ from those with it on quality of life or digital health technology use?
+wilcox.test(pcosqol_total ~ is.na(MET_total), data = df, exact = FALSE)
+wilcox.test(iot_total ~ is.na(MET_total), data = df, exact = FALSE)
 
 # ----------------------------------------------------------------------------
 # 7. Spearman correlations: IoT vs outcomes
@@ -340,11 +365,8 @@ for (v in outcomes) {
 # ----------------------------------------------------------------------------
 # 7b. FDR-corrected correlations: IoT Total vs outcomes
 # ----------------------------------------------------------------------------
-# Benjamini-Hochberg FDR correction across the 5 outcome tests for the
-# IoT Total predictor. This mirrors exactly the correction already applied
-# to the IoT subscales in Script 3 (Section 5), so that all three predictor
-# families are treated identically. Both uncorrected and corrected p-values
-# are retained so Table 6 can report each.
+# Benjamini-Hochberg FDR correction across the 5 outcomes for the total score,
+# as for the two subscales in Script 3. Raw and corrected p values (Table 3).
 
 cat("\n--- IoT Total vs outcomes: BH FDR corrected (5 tests) ---\n\n")
 
@@ -440,24 +462,23 @@ summary_table <- map_dfr(cont_vars, function(item) {
 write_csv(summary_table, "results/table1_summary.csv")
 cat("\nDone. Summary table saved to results/table1_summary.csv\n")
 
-# Next: Script_3_GroupComparisons.R
-
-
 # ----------------------------------------------------------------------------
-# Formal test of the subscale contrast
+# 11. Steiger's test: information-seeking vs self-monitoring correlations
 # ----------------------------------------------------------------------------
-# The paper claims the Engagement-PCOSQOL association is stronger than the
-# Self-Monitoring-PCOSQOL association. Comparing "significant" with
-# "non-significant" is not a test of that difference (Gelman & Stern, 2006).
-# Steiger's test compares two dependent, overlapping correlations.
+# Compares the two subscales' Spearman correlations with the same outcome
+# (dependent, overlapping correlations; Steiger, 1980). Run for the three
+# outcomes significant after FDR correction for at least one subscale.
+# iot_engagement = information-seeking subscale (items 1-5)
+# iot_selfmon    = self-monitoring subscale (items 6-10)
 
 library(cocor)
 
 d <- df[complete.cases(df$pcosqol_total, df$iot_engagement, df$iot_selfmon), ]
 
-cat("Engagement x Self-Monitoring intercorrelation (Spearman):\n")
+cat("\nInformation seeking x self-monitoring intercorrelation (Spearman):\n")
 print(cor.test(d$iot_engagement, d$iot_selfmon, method = "spearman", exact = FALSE))
 
+cat("\nSteiger's test: PCOSQOL\n")
 cocor.dep.groups.overlap(
   r.jk = cor(d$pcosqol_total, d$iot_engagement, method = "spearman"),
   r.jh = cor(d$pcosqol_total, d$iot_selfmon,    method = "spearman"),
@@ -465,28 +486,7 @@ cocor.dep.groups.overlap(
   n = nrow(d), alternative = "two.sided", test = "steiger1980"
 )
 
-
-
-
-
-
-
-
-
-cocor.dep.groups.overlap(
-  r.jk = cor(d$pcosqol_total, d$iot_engagement),
-  r.jh = cor(d$pcosqol_total, d$iot_selfmon),
-  r.kh = cor(d$iot_engagement, d$iot_selfmon),
-  n = nrow(d), alternative = "two.sided", test = "steiger1980"
-)
-
-
-
-
-
-
-
-
+cat("\nSteiger's test: EDE-Q7\n")
 cocor.dep.groups.overlap(
   r.jk = cor(d$ede_q7_global, d$iot_engagement, method = "spearman"),
   r.jh = cor(d$ede_q7_global, d$iot_selfmon,    method = "spearman"),
@@ -494,8 +494,7 @@ cocor.dep.groups.overlap(
   n = nrow(d), alternative = "two.sided", test = "steiger1980"
 )
 
-
-
+cat("\nSteiger's test: SWEMWBS\n")
 cocor.dep.groups.overlap(
   r.jk = cor(d$swemwbs_total, d$iot_engagement, method = "spearman"),
   r.jh = cor(d$swemwbs_total, d$iot_selfmon,    method = "spearman"),
@@ -503,14 +502,13 @@ cocor.dep.groups.overlap(
   n = nrow(d), alternative = "two.sided", test = "steiger1980"
 )
 
+# Benjamini-Hochberg correction across the three Steiger tests.
+# Raw p values copied from the three outputs above, in order:
+# PCOSQOL, EDE-Q7, SWEMWBS (Table 4 note).
+p.adjust(c(0.0008, 0.2861, 0.0124), method = "BH")
 
-
-
-
-
-
+# Shapiro-Wilk W for total MET before and after log transformation
 c(raw = shapiro.test(df$MET_total)$statistic,
   log = shapiro.test(df$MET_total_log)$statistic)
 
-
-p.adjust(c(0.0008, 0.2861, 0.0124), method = "BH")
+# Next: 3_group_comparisons.R

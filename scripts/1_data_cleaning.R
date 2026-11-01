@@ -6,22 +6,25 @@
 # Purpose: Load raw survey data, recode all variables, calculate composite
 #          scores, classify postcodes, and save analysis-ready dataset.
 #
-# Input:   IoT and PCOS UK92 - Claudio Antonio.xlsx (Sheet: Full with IPAQ-SF)
+# Input:   Digital_Health_Tech_PMOS_UK92_deidentified.xlsx
+#          (Sheet: Full with IPAQ-SF)
 # Output:  data-processed/cleaned_data.rds
 #          data-processed/cleaned_data.csv
 # ============================================================================
 
 library(tidyverse)
 library(readxl)
-library(PostcodesioR)
+library(here)
 
 
 # ----------------------------------------------------------------------------
 # 1. Load data
 # ----------------------------------------------------------------------------
 
+# 92 responses received; 1 respondent did not consent to data analysis
+# and was removed before export (n = 91)
 df_raw <- read_excel(
-  "~/OneDrive - University of Wolverhampton/IoT-PCOS/raw_data/IoT and PCOS UK92 - Claudio Antonio.xlsx",
+  here::here("raw_data", "Digital_Health_Tech_PMOS_UK92_deidentified.xlsx"),
   sheet = "Full with IPAQ-SF",
   na = c("", "NA")
 )
@@ -177,92 +180,37 @@ cat("  Prefer not to answer:", sum(df$occ_prefernot,    na.rm = TRUE), "\n")
 
 
 # ----------------------------------------------------------------------------
-# 5. Postcode — nation and urban/rural classification
+# 5. Postcode: nation
 # ----------------------------------------------------------------------------
-# Country (England/Scotland/Wales) is looked up via the PostcodesioR package
-# (Postcodes.io API), which returns ONS-verified country for full valid
-# postcodes. Urban/rural is classified from postcode area prefix using ONS
-# postcode area definitions, as the bulk API does not return rural-urban codes.
-# Partial postcodes (outward code only, n=7) are classified by prefix.
-# One non-UK postcode (6036) and one "Prefer not to answer" are coded NA.
-# Five postcodes appear for two respondents each; the lookup deduplicates
-# before the API call and joins by postcode string.
+# Nation is derived offline from the postcode district (first half of the
+# postcode). The data file holds districts only; no online lookup is used.
+# CH and SY also cover parts of England; all CH and SY districts in this
+# sample were checked by hand and are in Wales.
 
-df <- df %>%
-  mutate(postcode_clean = str_to_upper(str_remove_all(postcode, " ")))
-
-df <- df %>%
-  mutate(
-    postcode_type = case_when(
-      str_detect(postcode_clean, "PREFER")                                    ~ "prefer_not",
-      str_detect(postcode_clean, "^[0-9]")                                    ~ "non_uk",
-      str_detect(postcode_clean, "^[A-Z]{1,2}[0-9][0-9A-Z]?[0-9][A-Z]{2}$") ~ "full",
-      str_detect(postcode_clean, "^[A-Z]{1,2}[0-9][0-9A-Z]?$")               ~ "partial",
-      TRUE ~ "unknown"
-    )
-  )
-
-# Deduplicate before API call to avoid duplicate join rows
-full_postcodes_unique <- df %>%
-  filter(postcode_type == "full") %>%
-  distinct(postcode_clean) %>%
-  pull(postcode_clean)
-
-cat("\nLooking up", length(full_postcodes_unique),
-    "unique full postcodes via Postcodes.io...\n")
-
-lookup_results <- bulk_postcode_lookup(list(postcodes = full_postcodes_unique))
-
-api_data <- map_dfr(lookup_results, function(res) {
-  tibble(
-    postcode_clean = str_remove_all(res$query, " "),
-    api_country    = if (!is.null(res$result$country)) res$result$country
-                     else NA_character_
-  )
-})
-
-cat("API lookup complete. Retrieved", nrow(api_data), "results.\n")
-
-df <- df %>%
-  left_join(api_data, by = "postcode_clean")
-
-# Prefix-based classification
-# Scotland and Wales areas per Royal Mail/ONS standard definitions.
-# CH covers Chester (England) and Flintshire/NE Wales; all CH postcodes
-# in this sample (CH5, CH7) are Flintshire — classified as Wales.
 scotland_prefixes <- c("AB", "DD", "DG", "EH", "FK", "G", "HS", "IV",
                        "KA", "KW", "KY", "ML", "PA", "PH", "TD", "ZE")
 wales_prefixes    <- c("CF", "CH", "LD", "LL", "NP", "SA", "SY")
 
-# Rural areas in this sample: DG (Dumfries & Galloway) and DT (Dorset)
-rural_prefixes <- c("DG", "DT")
-
 df <- df %>%
   mutate(
-    postcode_area = str_extract(postcode_clean, "^[A-Z]{1,2}"),
-
-    nation = case_when(
-      postcode_type %in% c("prefer_not", "non_uk")  ~ NA_character_,
-      postcode_type == "full" & !is.na(api_country) ~ api_country,
-      postcode_area %in% scotland_prefixes           ~ "Scotland",
-      postcode_area %in% wales_prefixes              ~ "Wales",
-      postcode_type %in% c("full", "partial")        ~ "England",
-      TRUE                                           ~ NA_character_
+    postcode_clean = str_to_upper(str_remove_all(postcode, " ")),
+    postcode_district = case_when(
+      str_detect(postcode_clean, "^[A-Z]{1,2}[0-9][0-9A-Z]?[0-9][A-Z]{2}$") ~ str_sub(postcode_clean, 1, -4),
+      str_detect(postcode_clean, "^[A-Z]{1,2}[0-9][0-9A-Z]?$")             ~ postcode_clean,
+      TRUE ~ NA_character_
     ),
-
-    urban_rural = case_when(
-      postcode_type %in% c("prefer_not", "non_uk") ~ NA_character_,
-      postcode_area %in% rural_prefixes             ~ "Rural",
-      !is.na(postcode_area)                         ~ "Urban",
-      TRUE                                          ~ NA_character_
+    postcode_area = str_extract(postcode_district, "^[A-Z]{1,2}"),
+    nation = case_when(
+      postcode_area %in% scotland_prefixes ~ "Scotland",
+      postcode_area %in% wales_prefixes    ~ "Wales",
+      !is.na(postcode_area)                ~ "England",
+      TRUE                                 ~ NA_character_
     )
-  )
+  ) %>%
+  select(-postcode, -postcode_clean)
 
-# Verification
 cat("\nNation (expected: England=76, Scotland=8, Wales=5, NA=2):\n")
 print(table(df$nation, useNA = "ifany"))
-cat("\nUrban/Rural (expected: Urban=87, Rural=2, NA=2):\n")
-print(table(df$urban_rural, useNA = "ifany"))
 
 
 # ----------------------------------------------------------------------------
@@ -285,9 +233,12 @@ comorbidity_terms <- c(
   "Type 2 diabetes", "Pre-diabetes", "Insulin resistance",
   "High blood pressure", "High blood fat", "High LDL", "Low HDL",
   "Heart disease", "Liver Disease", "Kidney Disease",
-  "Asthma", "Chronic Lung Disease", "Sleep Apnoea",
-  "Depression", "Anxiety disorder", "Insomnia", "Chronic Pain", "Cancer"
+  "Asthma", "Chronic Lung Disease", "Sleep apnoea",
+  "Depression", "Anxiety disorder", "Insomnia", "Chronic pain", "Cancer"
 )
+# Check: how many respondents ticked each listed condition
+sapply(comorbidity_terms, function(x)
+  sum(str_detect(coalesce(df$comorbidities_raw, ""), fixed(x))))
 
 df <- df %>%
   mutate(
@@ -561,7 +512,7 @@ df_clean <- df %>%
     occ_fulltime, occ_parttime, occ_selfemployed, occ_student,
     occ_unemployed, occ_houseperson, occ_sahm, occ_disabled, occ_prefernot,
     ethnicity_cat, relationship_grouped, has_children,
-    postcode_area, nation, urban_rural,
+    postcode_area, nation,
     comorbidity_count, comorbidity_count_all,
     has_depression, has_anxiety, has_insulin_res,
     tobacco_Q1, tobacco_Q2, alcohol_Q1, alcohol_Q2, cm_total, all_of(cm_cols),

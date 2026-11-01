@@ -3,9 +3,13 @@
 # Sandro Graca | University of Wolverhampton
 # March 2026
 #
-# Purpose: Test whether health behaviours mediate the IoT -> PCOSQOL pathway.
+# Purpose: Test whether disordered eating, insomnia, mental wellbeing and
+#          physical activity mediate the association between digital health
+#          technology use and PCOSQOL (Figures 3-4; Supplemental Material 4).
+#          iot_engagement = information-seeking subscale (items 1-5)
+#          iot_selfmon    = self-monitoring subscale (items 6-10)
 # Method:  lavaan::sem(), MLR estimator, FIML for missing data
-#          (Field, 2026 Ch.10; Hayes, 2022)
+#          (Field, 2026, Ch. 10; Hayes, 2018)
 #
 # Input:   data-processed/cleaned_data.rds (from Script 1)
 # Output:  results/Script4_indirect_effects.csv   (Figure 4)
@@ -27,8 +31,8 @@ library(semTools)
 # assumption does not hold. Monte Carlo CIs draw from the estimated parameter
 # distribution and take the empirical percentiles instead (Preacher & Selig,
 # 2012). 100,000 draws; seeded so the CIs are reproducible.
-# Models that failed to converge (raw MET, MVPA) have no usable parameter
-# covariance matrix, so the CI is skipped rather than allowed to stop the run.
+# If a model returns no usable standard errors, the CI is skipped rather than
+# allowed to stop the run.
 
 MC_REPS <- 100000
 MC_SEED <- 20240607
@@ -44,8 +48,10 @@ mc_ci <- function(fit, reps = MC_REPS, seed = MC_SEED) {
     }
   )
   if (is.null(out)) return(invisible(NULL))
-  cat("\nMonte Carlo 95% CI (", reps, " draws):\n", sep = "")
-  print(round(out, 4))
+  cat("\nMonte Carlo 95% CI (", format(reps, big.mark = ",", scientific = FALSE), " draws):\n", sep = "")
+  out_print <- round(out, 4)
+  class(out_print) <- "data.frame"
+  print(out_print)
   invisible(out)
 }
 
@@ -60,10 +66,14 @@ cat("N =", nrow(df), "\n")
 
 df <- df %>%
   mutate(
-    MVPA          = MET_moderate + MET_vigorous,
     iot_c         = iot_total      - mean(iot_total,      na.rm = TRUE),
     iot_engage_c  = iot_engagement - mean(iot_engagement, na.rm = TRUE),
-    iot_selfmon_c = iot_selfmon    - mean(iot_selfmon,    na.rm = TRUE)
+    iot_selfmon_c = iot_selfmon    - mean(iot_selfmon,    na.rm = TRUE),
+    # Untransformed physical activity in hundreds of MET-min/week, so that its
+    # variance is on a similar scale to the other model variables
+    MET_total_h = MET_total / 100,
+    MVPA_h      = (MET_moderate + MET_vigorous) / 100,
+    walk_h      = MET_walk / 100
   )
 
 # Centring check - all should be ~0
@@ -76,7 +86,7 @@ cat("  iot_selfmon_c:", round(mean(df$iot_selfmon_c, na.rm = TRUE), 4), "\n\n")
 # ----------------------------------------------------------------------------
 # 2. Total effect - IoT -> PCOSQOL (no mediator)
 # ----------------------------------------------------------------------------
-# c_total must be significant before introducing any mediator.
+# Total effect (c), reported for reference.
 
 cat("--- Total effect: IoT -> PCOSQOL ---\n")
 
@@ -127,7 +137,7 @@ fit_met_total <- run_mediation("iot_c", "MET_total_log", "pcosqol_total", df,
 fit_isi_total <- run_mediation("iot_c", "isi_total", "pcosqol_total", df,
                                "IoT -> Sleep (ISI) -> PCOSQOL")
 
-# Model 3c: Eating behaviours (EDE-Q7) *** KEY MODEL ***
+# Model 3c: Disordered eating (EDE-Q7) - primary model
 fit_ede_total <- run_mediation("iot_c", "ede_q7_global", "pcosqol_total", df,
                                "IoT -> Eating (EDE-Q7) -> PCOSQOL")
 
@@ -137,11 +147,11 @@ fit_swemwbs_total <- run_mediation("iot_c", "swemwbs_total", "pcosqol_total", df
 
 
 # ----------------------------------------------------------------------------
-# 4. Sensitivity: raw MET (untransformed)
+# 4. Sensitivity: untransformed total physical activity (100 MET-min/week)
 # ----------------------------------------------------------------------------
 
-run_mediation("iot_c", "MET_total", "pcosqol_total", df,
-              "IoT -> PA (MET raw) -> PCOSQOL [sensitivity]")
+fit_met_untransformed <- run_mediation("iot_c", "MET_total_h", "pcosqol_total", df,
+                                       "IoT -> PA (MET, untransformed) -> PCOSQOL [sensitivity]")
 
 
 # ----------------------------------------------------------------------------
@@ -150,19 +160,43 @@ run_mediation("iot_c", "MET_total", "pcosqol_total", df,
 # MVPA = moderate + vigorous MET
 # sitting_hours = sedentary behaviour (higher = more sitting)
 
-run_mediation("iot_c", "MVPA",         "pcosqol_total", df,
+run_mediation("iot_c", "MVPA_h",       "pcosqol_total", df,
               "IoT -> MVPA -> PCOSQOL")
-run_mediation("iot_c", "MET_walk",     "pcosqol_total", df,
+run_mediation("iot_c", "walk_h",       "pcosqol_total", df,
               "IoT -> Walking -> PCOSQOL")
 run_mediation("iot_c", "sitting_hours","pcosqol_total", df,
               "IoT -> Sitting -> PCOSQOL")
 
+# ----------------------------------------------------------------------------
+# 5b. Sensitivity: covariate counting all reported conditions (incl. free text)
+# ----------------------------------------------------------------------------
+# Primary analyses adjust for the 18 listed conditions (comorbidity_count).
+# Here the primary EDE-Q7 models are re-run with comorbidity_count_all.
+
+model_allcond <- '
+  pcosqol_total ~ c*iot_c + b*ede_q7_global + age + years_diagnosed + comorbidity_count_all
+  ede_q7_global ~ a*iot_c + age + years_diagnosed + comorbidity_count_all
+  indirect := a * b
+  total    := c + (a * b)
+'
+
+cat("\n--- Sensitivity: all reported conditions, total score ---\n")
+fit_allcond <- lavaan::sem(model_allcond, data = df, missing = "fiml",
+                           estimator = "MLR")
+model_parameters(fit_allcond) |> display() |> print()
+mc_ci(fit_allcond)
+
+cat("\n--- Sensitivity: all reported conditions, information-seeking subscale ---\n")
+model_allcond_eng <- gsub("iot_c", "iot_engage_c", model_allcond, fixed = TRUE)
+fit_allcond_eng <- lavaan::sem(model_allcond_eng, data = df, missing = "fiml",
+                               estimator = "MLR")
+model_parameters(fit_allcond_eng) |> display() |> print()
+mc_ci(fit_allcond_eng)
 
 # ----------------------------------------------------------------------------
 # 6. Subscale analysis: Engagement vs Self-Monitoring as predictors
 # ----------------------------------------------------------------------------
-# Engagement (items 1-5): browsing, forums, social media, sharing, AI
-# Self-Monitoring (items 6-10): apps, trackers, sleep/nutrition/PA monitors
+# Single-mediator models with each subscale as the predictor.
 
 cat("\n\n--- Engagement subscale as predictor ---\n")
 run_mediation("iot_engage_c", "MET_total_log", "pcosqol_total", df,
@@ -191,9 +225,7 @@ run_mediation("iot_selfmon_c", "swemwbs_total", "pcosqol_total", df,
 # ----------------------------------------------------------------------------
 # 7. Multiple mediator model - all 4 primary mediators simultaneously
 # ----------------------------------------------------------------------------
-# Tests the unique indirect effect of each pathway when all mediators
-# compete. EDE-Q7 remaining significant here is the key robustness check.
-# Covariances between mediators are freely estimated (~~).
+# Unique indirect effect of each mediator when all four are modelled together.
 
 cat("\n\n--- Multiple mediator model (all 4 primary mediators) ---\n")
 
@@ -231,11 +263,9 @@ fit_multi <- lavaan::sem(model_multi, data = df, missing = "fiml",
 model_parameters(fit_multi) |> display()
 mc_ci(fit_multi)
 
-cat("\nModel fit indices:\n")
-lavaan::fitmeasures(fit_multi,
-                    fit.measures = c("cfi", "rmsea", "srmr", "tli")) %>%
-  round(3) %>%
-  print()
+# The model is saturated (df = 0), so fit indices are not informative
+# (Field, 2026, p. 581). The degrees of freedom are printed as a check.
+cat("\nModel degrees of freedom:", lavaan::fitmeasures(fit_multi, "df"), "\n")
 
 # ----------------------------------------------------------------------------
 # 8. Monte Carlo stability check
@@ -284,11 +314,8 @@ mc_ci(fit_multi_sm)
 # ----------------------------------------------------------------------------
 # 10. Export for Script 7
 # ----------------------------------------------------------------------------
-# Figures 4 and 8 previously took their values from the console output above.
-# Writing them here means the figures are rebuilt from the fitted models
-# rather than from transcription, so they cannot drift if the models change.
-# monteCarloCI is re-run under the same seed, so the values are identical to
-# those printed above.
+# Values for Figures 3 and 4 are written to file so that Script 7 reads them
+# directly; Monte Carlo CIs use the same seed as above.
 
 dir.create("results", showWarnings = FALSE)
 
@@ -341,7 +368,7 @@ pe_row <- function(fit, lbl, path_name) {
     B    = round(r$est,    4),
     SE   = round(r$se,     4),
     z    = round(r$z,      4),
-    p    = round(r$pvalue, 4)
+    p    = signif(r$pvalue, 4)
   )
 }
 
@@ -357,4 +384,4 @@ write_csv(primary_paths, "results/Script4_primary_paths.csv")
 cat("Saved: results/Script4_primary_paths.csv\n")
 
 
-cat("\nScript 4 complete. Next: Script5_ModeratedMediation_FINAL.R\n")
+cat("\nScript 4 complete. Next: 5_moderated_mediation.R\n")

@@ -3,9 +3,12 @@
 # Sandro Graca | University of Wolverhampton
 # March 2026
 #
-# Purpose: Stage 2 analyses - compare health outcomes across IoT tertile
-#          groups, and test whether associations differ between the
-#          Engagement and Self-Monitoring subscales.
+# Purpose: Stage 2 analyses - health outcomes across tertile groups of
+#          digital health technology use (total score and both subscales),
+#          and FDR-corrected Spearman correlations for the two subscales
+#          (Tables 3, 4 and 5).
+#          iot_engagement = information-seeking subscale (items 1-5)
+#          iot_selfmon    = self-monitoring subscale (items 6-10)
 #
 # Sections:
 #   1. IoT total tertile groups vs outcomes (Kruskal-Wallis + Dunn)
@@ -50,9 +53,10 @@ print(quantile(df$iot_total, probs = c(1/3, 2/3), na.rm = TRUE))
 # ----------------------------------------------------------------------------
 # 1. IoT total tertile groups vs outcomes
 # ----------------------------------------------------------------------------
-# Kruskal-Wallis H with epsilon-squared effect size
+# Kruskal-Wallis H with eta-squared based on H, (H - k + 1)/(n - k)
+# (Tomczak & Tomczak, 2014); negative estimates set to zero
 # Post-hoc: Dunn's test with Bonferroni correction
-# Effect size benchmarks: >= .01 small, >= .06 medium, >= .14 large
+# Effect size benchmarks (Cohen, 1988): >= .01 small, >= .06 medium, >= .14 large
 
 cat("\n--- Section 1: IoT total tertile groups vs outcomes ---\n\n")
 
@@ -85,13 +89,13 @@ for (v in outcomes) {
 
   # Kruskal-Wallis
   kw     <- kruskal.test(as.formula(paste(v, "~ iot_category")), data = df_sub)
-  eps_sq <- max(0, (kw$statistic - k + 1) / (n_total - k))
+  eta2_H <- max(0, (kw$statistic - k + 1) / (n_total - k))
   sig    <- ifelse(kw$p.value < .001, "***",
              ifelse(kw$p.value < .01,  "**",
              ifelse(kw$p.value < .05,  "*", "ns")))
 
-  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, epsilon2 = %.3f\n\n",
-              kw$parameter, kw$statistic, kw$p.value, sig, eps_sq))
+  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, eta2_H = %.3f\n\n",
+              kw$parameter, kw$statistic, kw$p.value, sig, eta2_H))
 
   kw_rows[[v]] <- data.frame(
     Outcome    = v,
@@ -99,7 +103,7 @@ for (v in outcomes) {
     H_stat     = round(kw$statistic, 3),
     p_KW       = round(kw$p.value, 4),
     Sig        = sig,
-    epsilon_sq = round(eps_sq, 3),
+    eta2_H = round(eta2_H, 3),
     n          = n_total
   )
 
@@ -150,6 +154,7 @@ for (v in outcomes) {
       val    = sprintf("%.2f [%.2f\u2013%.2f]", Median, Q1, Q3),
       .groups = "drop"
     ) %>%
+    select(iot_category, n, val) %>%
     pivot_wider(names_from = iot_category, values_from = c(val, n)) %>%
     mutate(Variable = v) %>%
     select(Variable,
@@ -205,13 +210,13 @@ for (v in outcomes) {
     print()
 
   kw     <- kruskal.test(as.formula(paste(v, "~ eng_group")), data = df_sub)
-  eps_sq <- max(0, (kw$statistic - k + 1) / (n_total - k))
+  eta2_H <- max(0, (kw$statistic - k + 1) / (n_total - k))
   sig    <- ifelse(kw$p.value < .001, "***",
              ifelse(kw$p.value < .01,  "**",
              ifelse(kw$p.value < .05,  "*", "ns")))
 
-  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, epsilon2 = %.3f\n\n",
-              kw$parameter, kw$statistic, kw$p.value, sig, eps_sq))
+  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, eta2_H = %.3f\n\n",
+              kw$parameter, kw$statistic, kw$p.value, sig, eta2_H))
 
   if (kw$p.value < .05) {
     cat("Dunn post-hoc (Bonferroni):\n")
@@ -228,7 +233,7 @@ for (v in outcomes) {
     H_stat     = round(kw$statistic, 3),
     p_KW       = round(kw$p.value, 4),
     Sig        = sig,
-    epsilon_sq = round(eps_sq, 3)
+    eta2_H = round(eta2_H, 3)
   )
 }
 
@@ -274,13 +279,13 @@ for (v in outcomes) {
     print()
 
   kw     <- kruskal.test(as.formula(paste(v, "~ sm_group")), data = df_sub)
-  eps_sq <- max(0, (kw$statistic - k + 1) / (n_total - k))
+  eta2_H <- max(0, (kw$statistic - k + 1) / (n_total - k))
   sig    <- ifelse(kw$p.value < .001, "***",
              ifelse(kw$p.value < .01,  "**",
              ifelse(kw$p.value < .05,  "*", "ns")))
 
-  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, epsilon2 = %.3f\n\n",
-              kw$parameter, kw$statistic, kw$p.value, sig, eps_sq))
+  cat(sprintf("KW: H(%d) = %.3f, p = %.4f %s, eta2_H = %.3f\n\n",
+              kw$parameter, kw$statistic, kw$p.value, sig, eta2_H))
 
   if (kw$p.value < .05) {
     cat("Dunn post-hoc (Bonferroni):\n")
@@ -297,7 +302,7 @@ for (v in outcomes) {
     H_stat     = round(kw$statistic, 3),
     p_KW       = round(kw$p.value, 4),
     Sig        = sig,
-    epsilon_sq = round(eps_sq, 3)
+    eta2_H = round(eta2_H, 3)
   )
 }
 
@@ -327,18 +332,22 @@ for (sub_v in subscales) {
       Predictor = sub_v,
       Outcome   = v,
       rho       = round(ct$estimate, 3),
-      p_raw     = round(ct$p.value, 4),
+      p_raw     = ct$p.value,
       n         = sum(idx)
     ))
   }
 
-  family$p_fdr   <- round(p.adjust(family$p_raw, method = "BH"), 4)
+  family$p_fdr   <- p.adjust(family$p_raw, method = "BH")
   family$Sig_raw <- ifelse(family$p_raw < .001, "***",
                     ifelse(family$p_raw < .01,  "**",
                     ifelse(family$p_raw < .05,  "*", "ns")))
   family$Sig_fdr <- ifelse(family$p_fdr < .001, "***",
                     ifelse(family$p_fdr < .01,  "**",
                     ifelse(family$p_fdr < .05,  "*", "ns")))
+  
+  # Round only after the FDR correction, so values are not rounded twice
+  family$p_raw <- round(family$p_raw, 3)
+  family$p_fdr <- round(family$p_fdr, 3)
 
   print(as.data.frame(family))
   cat("\n")
@@ -357,4 +366,4 @@ write_csv(desc_table,           "results/Script3_descriptives_by_group.csv")
 write_csv(cor_results,          "results/Script3_subscale_correlations.csv")
 
 cat("Results saved to results/\n")
-cat("Next: Script4_Mediation_FINAL.R\n")
+cat("Next: 4_mediation_analyses.R\n")

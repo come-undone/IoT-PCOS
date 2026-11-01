@@ -1,15 +1,19 @@
 # ============================================================================
-# Script 8: Post Hoc Power Analysis for Primary Mediation
-# ============================================================================
-# The a priori power calculation (G*Power, n = 154) was designed for a
-# bivariate comparison. The primary inferential finding is a mediation, and
-# the indirect effect (product of paths a and b) has a non-normal sampling
-# distribution. Monte Carlo simulation is therefore the appropriate method
-# (Schoemann, Boulton & Short, 2017, Psychological Methods), using the
-# observed standardised path coefficients and their SEs as population inputs.
+# PCOS IoT Study - Script 8: Post Hoc Power Analysis for Primary Mediation
+# Sandro Graca | University of Wolverhampton
+# March 2026
 #
-# Package: power4mome v0.2.1 (Cheung, 2024)
-# CRAN: https://cran.r-project.org/package=power4mome
+# Purpose: Monte Carlo power for the primary indirect effect
+#          (use -> EDE-Q7 -> PCOSQOL), the sample size needed for 80% power,
+#          and power under smaller assumed values of path a
+#          (Supplemental Material 5).
+# Package: power4mome v0.2.1 (Cheung et al., 2025)
+# CRAN:    https://cran.r-project.org/package=power4mome
+#
+# Input:   data-processed/cleaned_data.rds (from Script 1)
+# Output:  results/Script8_power_sensitivity.csv
+#
+# Run order: Script 1 -> 4 -> THIS SCRIPT
 # ============================================================================
 
 library(dplyr)
@@ -27,10 +31,7 @@ library(power4mome)
 df <- readRDS("data-processed/cleaned_data.rds")
 
 df <- df %>%
-  mutate(
-    MVPA  = MET_moderate + MET_vigorous,
-    iot_c = iot_total - mean(iot_total, na.rm = TRUE)
-  )
+  mutate(iot_c = iot_total - mean(iot_total, na.rm = TRUE))
 
 model_primary <- '
   ede_q7_global ~ a*iot_c + age + years_diagnosed + comorbidity_count
@@ -42,25 +43,25 @@ model_primary <- '
 fit_primary <- lavaan::sem(model_primary, data = df,
                            missing = "fiml", estimator = "MLR")
 
-std_paths <- lavaan::standardizedsolution(fit_primary)[
-  lavaan::standardizedsolution(fit_primary)$label %in% c("a", "b", "c"),
-  c("label", "est.std", "se")
-]
-
+std_all   <- lavaan::standardizedsolution(fit_primary)
+std_paths <- std_all[std_all$label %in% c("a", "b", "c", "indirect"),
+                     c("label", "est.std", "se", "ci.lower", "ci.upper")]
 print(std_paths)
 
-# 95% CI for path a — lower bound used as primary sensitivity value in Step 4
-print(lavaan::standardizedsolution(fit_primary)[
-  lavaan::standardizedsolution(fit_primary)$label == "a",
-  c("label", "est.std", "se", "ci.lower", "ci.upper")
-])
-# Verified: ci.lower = 0.141, ci.upper = 0.485
+# Verified output (21 Oct 2026):
+#   a = 0.308 (SE 0.088; 95% CI 0.137 to 0.480); b = -0.341 (SE 0.078);
+#   c' = -0.247 (SE 0.072); indirect = -0.105 (95% CI -0.175 to -0.035)
 
-# Verified output:
-#   label  est.std    se
-#       a    0.313  0.088   path a: IoT -> EDE-Q7
-#       b   -0.346  0.078   path b: EDE-Q7 -> PCOSQOL
-#       c   -0.252  0.071   direct effect: IoT -> PCOSQOL
+# Standardised paths used in Steps 2-4, taken from the fitted model rather
+# than typed, and rounded to 3 dp as reported in Supplemental Material 5.
+# The lower 95% CI bound of path a is the primary sensitivity value (Step 4).
+a_std  <- round(std_paths$est.std[std_paths$label == "a"], 3)
+b_std  <- round(std_paths$est.std[std_paths$label == "b"], 3)
+cp_std <- round(std_paths$est.std[std_paths$label == "c"], 3)
+a_low  <- round(std_paths$ci.lower[std_paths$label == "a"], 3)
+
+cat("Path a:", a_std, "| path b:", b_std, "| direct c':", cp_std,
+    "| path a, lower 95% CI:", a_low, "\n")
 
 
 # ----------------------------------------------------------------------------
@@ -74,9 +75,9 @@ print(lavaan::standardizedsolution(fit_primary)[
 set.seed(2025)
 
 power_at_n89 <- q_power_mediation_simple(
-  a            =  0.313,
-  b            = -0.346,
-  cp           = -0.252,
+  a            = a_std,
+  b            = b_std,
+  cp           = cp_std,
   n            = 89,
   ci_type      = "mc",
   R            = 5000,
@@ -86,11 +87,8 @@ power_at_n89 <- q_power_mediation_simple(
 )
 
 print(power_at_n89)
-
-# Verified output:
-#   Empirical power: 0.792 (95% CI: 0.750-0.829)
-#   All replications valid (p.v = 1.000)
-#   Mean indirect effect across replications: -0.108
+# Verified output (21 Oct 2026): power 0.767 (95% CI 0.724 to 0.806);
+#   400 simulated datasets, all valid
 
 
 # ----------------------------------------------------------------------------
@@ -102,9 +100,9 @@ print(power_at_n89)
 set.seed(2025)
 
 n_for_80 <- q_power_mediation_simple(
-  a            =  0.313,
-  b            = -0.346,
-  cp           = -0.252,
+  a            = a_std,
+  b            = b_std,
+  cp           = cp_std,
   ci_type      = "mc",
   R            = 5000,
   seed         = 2025,
@@ -113,32 +111,28 @@ n_for_80 <- q_power_mediation_simple(
 )
 
 print(n_for_80)
-
-# Verified output:
-#   Minimum n for 80% power: 91
-#   Estimated power at n = 91: 0.784 (95% CI: 0.654-0.875)
-#   Power exceeds 0.80 from approximately n = 92 onwards
+# Verified output (21 Oct 2026): n = 97, estimated power 0.824
+#   (95% CI 0.697 to 0.904)
 
 
 # ----------------------------------------------------------------------------
 # 4. Sensitivity analysis: power across a range of path a assumptions
 # ----------------------------------------------------------------------------
-# The observed path a (beta = 0.313) is estimated from n = 89. Small samples
+# The observed path a is estimated from n = 89. Small samples
 # are susceptible to effect size inflation: only effects large enough to reach
 # significance are observed, so the true population effect may be smaller
 # (Schafer & Schwarz, 2019, Frontiers in Psychology).
 #
 # Path a is varied across four principled values while path b is held at the
-# observed value (beta = -0.346). Path b is held fixed because it represents
+# observed value. Path b is held fixed because it represents
 # a well-established clinical association (eating concerns -> QoL) with
 # stronger prior support than the novel IoT predictor.
 #
 # Four values of path a are tested:
-#   0.313 = observed estimate (baseline, matches Steps 2-3)
-#   0.235 = 75% of observed (modest attenuation)
-#   0.157 = 50% of observed (conservative attenuation)
-#   0.141 = lower bound of 95% CI for path a (statistically principled
-#           minimum: smallest value consistent with the data at 95% confidence)
+#   observed estimate (baseline, matches Steps 2-3)
+#   75% of observed (modest attenuation)
+#   50% of observed (conservative attenuation)
+#   lower bound of 95% CI for path a (statistically principled)
 #
 # The CI lower bound is the primary sensitivity value. The attenuation
 # scenarios provide additional context.
@@ -155,10 +149,10 @@ wilson_ci <- function(p, n) {
     upper = round(centre + margin, 3))
 }
 
-a_values   <- c(0.313, 0.235, 0.157, 0.141)
+a_values   <- round(c(a_std, 0.75 * a_std, 0.50 * a_std, a_low), 3)
 a_labels   <- c("observed", "attenuated_75pct", "conservative_50pct", "ci_lower_bound")
-b_fixed    <- -0.346
-cp_fixed   <- -0.252
+b_fixed    <- b_std
+cp_fixed   <- cp_std
 n_analysis <- 89
 
 sensitivity_results <- data.frame(
@@ -204,11 +198,17 @@ for (i in seq_along(a_values)) {
 cat("Summary table:\n")
 print(sensitivity_results)
 
-# ----------------------------------------------------------------------------
-# VERIFIED OUTPUTS - sensitivity analysis
-# ----------------------------------------------------------------------------
+dir.create("results", showWarnings = FALSE)
+write.csv(sensitivity_results, "results/Script8_power_sensitivity.csv",
+          row.names = FALSE)
+cat("Saved: results/Script8_power_sensitivity.csv\n")
+
+# Verified output (21 Oct 2026):
 # Scenario            | Path a | Indirect | Power | 95% CI
-# observed            | 0.313  | -0.108   | 0.792 | [0.750, 0.829]
-# attenuated_75pct    | 0.235  | -0.081   | 0.568 | [0.519, 0.615]
-# conservative_50pct  | 0.157  | -0.054   | 0.295 | [0.252, 0.341]
-# ci_lower_bound      | 0.141  | -0.049   | 0.240 | [0.201, 0.284]
+# observed            | 0.308  | -0.105   | 0.767 | [0.724, 0.806]
+# attenuated_75pct    | 0.231  | -0.079   | 0.557 | [0.509, 0.605]
+# conservative_50pct  | 0.154  | -0.053   | 0.278 | [0.236, 0.323]
+# ci_lower_bound      | 0.137  | -0.047   | 0.230 | [0.191, 0.274]
+
+# Package versions, for the README (power values depend on them)
+writeLines(capture.output(sessionInfo()), "results/Script8_sessionInfo.txt")
